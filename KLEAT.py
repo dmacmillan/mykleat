@@ -32,6 +32,7 @@ parser.add_argument('-c', help='Specify a contig/s to look at.', nargs='+')
 parser.add_argument('--link', action='store_true', help='Enable searching for cleavage site link evidence. This will substantially increase runtime.')
 
 args = parser.parse_args()
+#logging.basicConfig(level=logging.DEBUG)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('polyA_logger')
 
@@ -1564,7 +1565,7 @@ def output_result(a, result, output_fields, fd, link_pairs=[]):
         data['hexamer_loc+id'] = (';').join([str(x[0])+':'+str(x[1]) for x in a['binding_sites']])
     
     # A random utr3 is chosen out of the list
-    if result['txt']:
+    if (result['txt']) and (result['txt'] in a['utr3s']):
         data['3UTR_start_end'] = str(a['utr3s'][result['txt']][0])+'-'+str(a['utr3s'][result['txt']][1])
 #        N = ''
 #        if ('novel' in utr3) and (utr3['novel'] == True):
@@ -1723,7 +1724,7 @@ for align in aligns:
         if align.query_name not in args.c:
             continue
     #sys.stdout.write('{}-{}-{}{}\n'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
-    print '{}-{}-{}{}'.format(align.qname,align.reference_start, align.reference_end,'*'*10)
+    print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
     # If the contig has no start or no end coordinate, we can't
     # do any analysis on it, so we must skip it
     if (align.reference_start == None) or (align.reference_end == None):
@@ -1781,20 +1782,23 @@ for align in aligns:
                 a['small_to_large_distance_txt'].insert(0,t)
     if (a['min_dist'] < thresh_dist):
         a['report_closest'] = True
-    # Check which transcript that has a 3utr is closest
-    if not (feature_dict[a['target']][a['closest_tid']]['utr3']):
-        a['closest_tid'] = a['small_to_large_distance_txt'][0]
-        refr = feature_dict[a['target']][a['closest_tid']]
-        if (a['strand'] == '+'):
-            a['closest_feat'] = refr['feats'][refr['maxfeat']]
-        else:
-            a['closest_feat'] = refr['feats'][0]
-            
     # Get 3utrs for all overlapping transcripts
     for t in a['tids']:
         utr3 = feature_dict[a['target']][t]['utr3']
         if (utr3):
             a['utr3s'][t] = utr3
+    # Check which transcript that has a 3utr is closest
+    if a['utr3s'] and a['small_to_large_distance_txt']:
+        if not (feature_dict[a['target']][a['closest_tid']]['utr3']):
+            a['closest_tid'] = a['small_to_large_distance_txt'][0]
+            refr = feature_dict[a['target']][a['closest_tid']]
+            if (a['strand'] == '+'):
+                a['closest_feat'] = refr['feats'][refr['maxfeat']]
+            else:
+                a['closest_feat'] = refr['feats'][0]
+    # Skip contig if there is no feature close to it
+    if not a['closest_tid']:
+        continue
     # Get query blocks
     a['qblocks'] = cigarToBlocks(align.cigar, align.reference_start, a['strand'])[1]
     if not a['qblocks']:
@@ -1802,12 +1806,9 @@ for align in aligns:
     a['qstart'] = min(a['qblocks'][0][0], a['qblocks'][0][1], a['qblocks'][-1][0], a['qblocks'][-1][1])
     a['qend'] = max(a['qblocks'][0][0], a['qblocks'][0][1], a['qblocks'][-1][0], a['qblocks'][-1][1])
     result_link = link_pairs = None
-    for k in a:
-        if k == 'feature_list':
-            continue
-        print k
-        print a[k]
-    raw_input('*'*20)
+    #for k in a:
+    #    logger.debug(k)
+    #    logger.debug(a[k])
     results = find_polyA_cleavage(a,global_filters)
     if results:
         for result in results:
