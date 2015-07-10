@@ -7,7 +7,6 @@ import os
 import sys
 import re
 import subprocess
-import cPickle as pickle
 # External modules below
 import pysam
 
@@ -26,6 +25,7 @@ parser.add_argument('--min_at', help='Minimum number of a|t bases in tail. defau
 parser.add_argument('--max_diff', help='Maximum rate of x to y bases allowed in tail. where x are non a|t bases and y are a|t bases. default: 1 5.', nargs=2, default=[1,5])
 parser.add_argument('--max_diff_link', help='Maximum number of non A|T bases in entire link read. Default is 2.', type=int, default=2)
 parser.add_argument('--min_bridge_size', help='Minimum size of bridge. Default is 1.', type=int, default=1)
+parser.add_argument('--max_dist', help='The maximum distance that a putative cleavage site may be from an annotated end. Default is 5000', default=5000)
 parser.add_argument('-k', '--track', metavar=('[name]','[description]'), help='Name and description of BED graph track to output.', nargs=2)
 parser.add_argument('--rgb', help='RGB value of BED graph. Default is 0,0,255', default='0,0,255')
 parser.add_argument('-c', help='Specify a contig/s to look at.', nargs='+')
@@ -134,6 +134,10 @@ global_filters['max_diff'] = [int(x) for x in args.max_diff]
 global_filters['max_diff_link'] = args.max_diff_link
 global_filters['min_bridge_size'] = args.min_bridge_size
 global_filters['feature_dict'] = feature_dict
+global_filters['quality_scale'] = {}
+qual_scale = '''!"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~'''
+for i,c in enumerate(qual_scale):
+    global_filters['quality_scale'][c] = i
 
 def ucsc_chroms(genome):
     """Extracts conversion of UCSC chromosome names
@@ -246,8 +250,9 @@ def group_and_filter(lines_result, out_file, filters=None, make_track=None, rgb=
                 result = merge_results(results)
             else:
                 result = results[0]
-            if (int(result[10]) == 0) and (int(result[12]) == 0) and (int(result[16]) == 0):
-                continue
+            if (result[10] != '-') and (result[12] != '-') and (result[16] != '-'):
+                if (int(result[10]) == 0) and (int(result[12]) == 0) and (int(result[16]) == 0):
+                    continue
                                     
             if filters is not None and filters.has_key('min_bridge_size') and ((int(result[12]) > 0) and (int(result[13]) < filters['min_bridge_size'])):
                 continue
@@ -315,19 +320,6 @@ def output_track2(out_file, name, desc, rgb, track=[]):
     out.write('track type=bedGraph name="{}" description="{}" visibility=full color={}\n'.format(name, desc, rgb))
     for line in track:
         out.write('{}\n'.format(line))
-
-def output_track(out_file, name, desc, rgb='0,0,0', plus=[], minus=[]):
-    """Outputs bedgraph, separate tracks for plus and minus strands"""
-    out = open(out_file, 'w')
-    # plus strand
-    out.write('%s\n' % prepare_track_header(name + ' (+)', desc + ' plus strand', rgb))
-    for line in plus:
-        out.write('%s\n' % line)
-    # minus strand
-    out.write('%s\n' % prepare_track_header(name + '(-)', desc + ' minus strand', rgb))
-    for line in minus:
-        out.write('%s\n' % line)
-    out.close()
 
 def merge_results(results):        
     """Merges results from different contigs of same cleavage site into single result"""
@@ -535,17 +527,27 @@ def is_polyA_tail(seq, expected_base, min_len, max_nonAT_allowed):
     if freq[expected_base] < min_len:
         return False
 
-    for i in range(0, len(seq), max_nonAT_allowed[1]):
-        subseq = seq[i:i+10]
-    
-        freq = check_freq(subseq)
-        non_expected_freq = 0
-        for base, f in freq.iteritems():
-            if base.upper() != expected_base.upper():
-                non_expected_freq += f
+    if (max_nonAT_allowed[0] == 0):
+        if (freq[expected_base] < len(seq)):
+            return False
         
-        if non_expected_freq > max_nonAT_allowed[0]:
-            result = False
+    non_base = sum([freq[b] for b in freq if b != expected_base])
+    ratio = float(freq[expected_base])/non_base
+    if (ratio <= max_nonAT_allowed[1]/max_nonAT_allowed[0]):
+        return False
+
+#    for i in range(0, len(seq), max_nonAT_allowed[1]):
+#        subseq = seq[i:i+10]
+#    
+#        freq = check_freq(subseq)
+#        non_expected_freq = 0
+#        for base, f in freq.iteritems():
+#            if base.upper() != expected_base.upper():
+#                non_expected_freq += f
+#        
+#        if non_expected_freq > max_nonAT_allowed[0]:
+#            print 'returning false because non_expected_feq > max_nonAT_allowed[0]'
+#            result = False
             
     return result
 
@@ -721,6 +723,9 @@ def is_bridge_read_good(clipped_seq, base, min_len, mismatch):
         #print '{}-{}'.format(clipped_seq, good)
     return good
 
+#def trim_bases(seq, qual, qual_dict, end=None):
+#    tstart, tend = None, None
+
 def trim_bases(seq, qual, end=None):
     """Trim poor quality bases from read sequence"""
     if poor_quals is None or poor_quals == '':
@@ -861,6 +866,9 @@ def annotate_cleavage_site(a, feature_list, cleavage_site, clipped_pos, base, mi
                 dist = abs(cleavage_site - a['closest_feat'].end)
             else:
                 dist = abs(cleavage_site - a['closest_feat'].start)
+
+        if not tidutr3:
+            return None
 
         result = {
                 'ests': ests,
@@ -1038,9 +1046,13 @@ def find_bridge_reads(a, min_len, mismatch, gf, genome_buffer=1000, tail=None):
                     clipped_qual = read.qual[-1 * (read.cigar[-1][1] + diff):]
                                     
             # trim poor quality base if desired
+#            print read.qname
+#            print 'clipped_seq before: {}'.format(clipped_seq)
             if args.trim_reads:
                 clipped_seq = trim_bases(clipped_seq, clipped_qual, clipped_pos)
+#            print 'clipped_seq after: {}'.format(clipped_seq)
                 
+            #print '{}\t{}\t{}\t{}'.format(read.qname,read.cigar,read.seq,read.is_reverse)
             if len(clipped_seq) < 1:
                 continue
             if (len(clipped_seq) < global_filters['min_bridge_size']):
@@ -1050,6 +1062,7 @@ def find_bridge_reads(a, min_len, mismatch, gf, genome_buffer=1000, tail=None):
             clipped_seq_genome = clipped_seq
             if a['strand'] == '-':
                 clipped_seq_genome = revComp(clipped_seq)
+            #print clipped_seq_genome
             
             # check for possible tail (stretch of A's or T's)
             pos_genome = qpos_to_tpos(a, last_matched)
@@ -1057,6 +1070,10 @@ def find_bridge_reads(a, min_len, mismatch, gf, genome_buffer=1000, tail=None):
             picked = False
             #print 'clipped_seq_genome:\n{}'.format(clipped_seq_genome)
             for base in ('A', 'T'):
+                #print 'base: {}'.format(base)
+                #print 'min_len: {}'.format(min_len)
+                #print 'mismatch: {}'.format(mismatch)
+                #raw_input('*'*20)
                 if is_bridge_read_good(clipped_seq_genome, base, min_len, mismatch):
                     if not clipped_reads[clipped_pos].has_key(last_matched):
                         clipped_reads[clipped_pos][last_matched] = {}
@@ -1204,7 +1221,7 @@ def find_tail_contig(a, min_len, mismatch):
     
     if int(a['qend']) < int(a['align'].infer_query_length(True)):
         clipped['end'] = True
-        
+
     for clipped_pos in ('start', 'end'):
         if clipped[clipped_pos]:
             if clipped_pos == 'start':
@@ -1794,8 +1811,10 @@ for align in aligns:
             refr = feature_dict[a['target']][a['closest_tid']]
             if (a['strand'] == '+'):
                 a['closest_feat'] = refr['feats'][refr['maxfeat']]
+                a['min_dist'] = abs(a['closest_feat'].end - align.reference_end)
             else:
                 a['closest_feat'] = refr['feats'][0]
+                a['min_dist'] = abs(a['closest_feat'].start - align.reference_start)
     # Skip contig if there is no feature close to it
     if not a['closest_tid']:
         continue
@@ -1810,6 +1829,14 @@ for align in aligns:
     #    logger.debug(k)
     #    logger.debug(a[k])
     results = find_polyA_cleavage(a,global_filters)
+    if (a['report_closest']):
+        if (a['strand'] == '+'):
+            cs = a['closest_feat'].end
+        else:
+            cs = a['closest_feat'].start
+        result = {'txt': a['closest_tid'], 'cleavage_site': cs, 'within_utr': True,
+                  'from_end': a['min_dist'], 'ests': None}
+        results.append(result)
     if results:
         for result in results:
             try:
