@@ -532,6 +532,8 @@ def is_polyA_tail(seq, expected_base, min_len, max_nonAT_allowed):
             return False
         
     non_base = sum([freq[b] for b in freq if b != expected_base])
+    if (non_base == 0):
+        return True
     ratio = float(freq[expected_base])/non_base
     if (ratio <= max_nonAT_allowed[1]/max_nonAT_allowed[0]):
         return False
