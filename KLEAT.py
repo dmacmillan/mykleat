@@ -254,8 +254,9 @@ def group_and_filter(lines_result, out_file, filters=None, make_track=None, rgb=
                 if (int(result[10]) == 0) and (int(result[12]) == 0) and (int(result[16]) == 0):
                     continue
                                     
-            if filters is not None and filters.has_key('min_bridge_size') and ((int(result[12]) > 0) and (int(result[13]) < filters['min_bridge_size'])):
-                continue
+            if result[12] != '-':
+                if (filters) and ('min_bridge_size' in filters) and ((int(result[12]) > 0) and (int(result[13]) < filters['min_bridge_size'])):
+                    continue
                 
             out.write('%s\n' % '\t'.join(result))
             if make_track is not None:
@@ -286,7 +287,7 @@ def group_and_filter(lines_result, out_file, filters=None, make_track=None, rgb=
     # prefix used for track and stats files
     prefix = os.path.splitext(out_file)[0]
     # output track
-    randstr = ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10))
+    #randstr = ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10))
     if make_track is not None:
         track_file = prefix + '.bg'
         output_track2(prefix+'.+.bg', make_track[0]+'.+', make_track[1], rgb, track_plus)
@@ -1540,7 +1541,7 @@ def output_result(a, result, output_fields, fd, link_pairs=[]):
     data['cleavage_site'] = result['cleavage_site']
     data['distance_from_annotated_site'] = result['from_end']
     
-    if result.has_key('tail_seq'):
+    if 'tail_seq' in result:
         if result['tail_seq'] is None:
             data['length_of_tail_in_contig'] = 0
             data['number_of_tail_reads'] = 0
@@ -1836,15 +1837,17 @@ for align in aligns:
             cs = a['closest_feat'].end
         else:
             cs = a['closest_feat'].start
-        result = {'txt': a['closest_tid'], 'cleavage_site': cs, 'within_utr': True,
-                  'from_end': a['min_dist'], 'ests': None}
-        results.append(result)
+        res = {'txt': a['closest_tid'], 'cleavage_site': cs, 'within_utr': True,
+               'from_end': a['min_dist'], 'ests': None}
+        if not any([(abs(x['cleavage_site'] - res['cleavage_site']) < 5) for x in results]):
+            results.append(res)
     if results:
         for result in results:
+            # If there is already a cs close to the end, we don't need the implied one
             try:
                 a['binding_sites'] = findBindingSites(a, result['cleavage_site'])
             except TypeError:
-                continue
+                a['binding_sites'] = None
             lines_result += output_result(a, result, output_fields, feature_dict, link_pairs=link_pairs)
                 
 # close output streams
