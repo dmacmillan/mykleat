@@ -1757,7 +1757,7 @@ for align in aligns:
     # min_dist          = The minimum distance between any transcript and the contig
     a = {'align': align,'closest_tid': None,'closest_feat': None,
          'report_closest': False, 'feature_list': [], 'tids': set(),
-         'min_dist': 1000000, 'utr3s': {}, 'utr5s': {}, 'small_to_large_distance_txt':[]}
+         'min_dist': 1000000, 'utr3s': {}, 'utr5s': {}, 'large_to_small_distance_txt':[]}
     # Get target/chromosome
     a['target'] = aligns.getrname(align.tid)
     # Get the sequence of the contig
@@ -1799,7 +1799,7 @@ for align in aligns:
             a['closest_feat'] = subclosest_feat
             a['min_dist'] = dist
             if feature_dict[a['target']][t]['utr3']:
-                a['small_to_large_distance_txt'].insert(0,t)
+                a['large_to_small_distance_txt'].insert(0,[t,dist])
     if (a['min_dist'] < thresh_dist):
         a['report_closest'] = True
     # Get 3utrs for all overlapping transcripts
@@ -1808,9 +1808,9 @@ for align in aligns:
         if (utr3):
             a['utr3s'][t] = utr3
     # Check which transcript that has a 3utr is closest
-    if a['utr3s'] and a['small_to_large_distance_txt']:
-        if not (feature_dict[a['target']][a['closest_tid']]['utr3']):
-            a['closest_tid'] = a['small_to_large_distance_txt'][0]
+    if a['utr3s'] and a['large_to_small_distance_txt']:
+        if (not feature_dict[a['target']][a['closest_tid']]['utr3']) and (a['large_to_small_distance_txt'][-1][1] <= 20):
+            a['closest_tid'] = a['large_to_small_distance_txt'][-1][0]
             refr = feature_dict[a['target']][a['closest_tid']]
             if (a['strand'] == '+'):
                 a['closest_feat'] = refr['feats'][refr['maxfeat']]
@@ -1832,6 +1832,7 @@ for align in aligns:
     #    logger.debug(k)
     #    logger.debug(a[k])
     results = find_polyA_cleavage(a,global_filters)
+    #print 'results: {}'.format(results)
     if (a['report_closest']):
         if (a['strand'] == '+'):
             cs = a['closest_feat'].end
@@ -1839,7 +1840,9 @@ for align in aligns:
             cs = a['closest_feat'].start
         res = {'txt': a['closest_tid'], 'cleavage_site': cs, 'within_utr': True,
                'from_end': a['min_dist'], 'ests': None}
+        #print 'res: {}'.format(res)
         if not any([(abs(x['cleavage_site'] - res['cleavage_site']) < 5) for x in results]):
+            #print 'appended res!'
             results.append(res)
     if results:
         for result in results:
