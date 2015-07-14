@@ -794,7 +794,7 @@ def output_link_pairs(align, reads):
                                                      mate_contig, num_trimmed_bases, trimmed_seq) 
     return out
 
-def annotate_cleavage_site(a, feature_list, cleavage_site, clipped_pos, base, min_txt_match_percent=0.6):
+def annotate_cleavage_site(a, feature_list, cleavage_site, clipped_pos, base, fd, min_txt_match_percent=0.6):
     """Finds transcript where proposed cleavage site makes most sense, and also fetches matching ESTs
 
     This method assesses whether the cleavage site makes sense with
@@ -837,7 +837,7 @@ def annotate_cleavage_site(a, feature_list, cleavage_site, clipped_pos, base, mi
     if (txt_strand == '+' and base == 'A') or\
        (txt_strand == '-' and base == 'T'):     
         ests = []
-
+        
         txts_screened = feature_list
         flength = len(txts_screened)
         for feature in txts_screened:
@@ -848,34 +848,34 @@ def annotate_cleavage_site(a, feature_list, cleavage_site, clipped_pos, base, mi
             return result
         
         within_utr, identical = False,False
-        tidutr3 = None
+        closest_tid = None
         min_dist = 9000000
-        dist = None
-        for tid in a['utr3s']:
-            if (a['strand'] == '+'):
-                dist = abs(a['utr3s'][tid][1] - cleavage_site)
-            else:
-                dist = abs(a['utr3s'][tid][0] - cleavage_site)
-            if (dist < min_dist):
-                min_dist = dist
-                tidutr3 = tid
-            if (a['utr3s'][tid][0] <= cleavage_site <= a['utr3s'][tid][1]):
-                within_utr = True
-        if (dist == 0):
-            identical = True
-        if not a['utr3s']:
-            tidutr3 = a['closest_tid']
-            if (a['strand'] == '+'):
-                dist = abs(cleavage_site - a['closest_feat'].end)
-            else:
-                dist = abs(cleavage_site - a['closest_feat'].start)
 
-        if not tidutr3:
-            return None
+        if a['strand'] == '+':
+            closest = sorted(a['close'],key=lambda(x):abs(cleavage_site - x[2].end))
+        else:
+            closest = sorted(a['close'],key=lambda(x):abs(cleavage_site - x[2].start))
+        if not closest:
+            return result
+        if closest:
+            closest_within_utr3 = [x for x in closest if x[3]]
+            if closest_within_utr3 and (closest_within_utr3[0][1] <= 20):
+                closest = closest_within_utr3[0]
+            else:
+                closest = closest[0]
+        if a['strand'] == '+':
+            min_dist = abs(cleavage_site - closest[2].end)
+        else:
+            min_dist = abs(cleavage_site - closest[2].start)
+        closest_tid = closest[0]
+        if closest[1] == 0:
+            identical = True
+        if fd[a['target']][closest_tid]['utr3']:
+            within_utr = True
 
         result = {
                 'ests': ests,
-                'txt': tidutr3,
+                'txt': closest_tid,
                 'novel': not identical, 
                 'within_utr': within_utr,
                 'coord': '%s:%d' % (a['target'], cleavage_site),
@@ -885,9 +885,10 @@ def annotate_cleavage_site(a, feature_list, cleavage_site, clipped_pos, base, mi
                 'base': base
             }
 
+        #print '\tcs: {}\ttxt: {}'.format(cleavage_site,closest_tid)
     return result
 
-def find_polyA_cleavage(a,gf):
+def find_polyA_cleavage(a,gf,fd):
     gf = global_filters
     """Finds PolyA cleavage sites of a given aligned contig
     
@@ -908,7 +909,7 @@ def find_polyA_cleavage(a,gf):
         for event in tail[clipped_pos]:
             # contig coordinate of cleavage site                
             last_matched, cleavage_site, base, tail_seq, num_tail_reads, bridge_reads, bridge_clipped_seq = event
-            result = annotate_cleavage_site(a, a['feature_list'], cleavage_site, clipped_pos, base)
+            result = annotate_cleavage_site(a, a['feature_list'], cleavage_site, clipped_pos, base, fd)
             if result:
                 if bridge_reads:
                     result['num_bridge_reads'] = len(bridge_reads)
@@ -1737,7 +1738,7 @@ def fetchUtrs(a, feature_list, first_cds, last_cds):
 
 # If the distance between any transcript end and the contig end is
 # less than this value, the transcript end should be reported as a cleavage event
-thresh_dist = 21
+thresh_dist = 20
 lines_result = lines_bridge = lines_link = ''
 for align in aligns:
     # If contigs are specified only look at those
@@ -1758,7 +1759,7 @@ for align in aligns:
     # min_dist          = The minimum distance between any transcript and the contig
     a = {'align': align,'closest_tid': None,'closest_feat': None,
          'report_closest': False, 'feature_list': [], 'tids': set(),
-         'min_dist': 1000000, 'utr3s': {}, 'utr5s': {}, 'large_to_small_with_utr3_distance_txt':[]}
+         'min_dist': 1000000, 'utr3s': {}, 'utr5s': {}, 'close':[]}
     # Get target/chromosome
     a['target'] = aligns.getrname(align.tid)
     # Get the sequence of the contig
@@ -1786,6 +1787,7 @@ for align in aligns:
     # Go through the list of transcripts and find the one closest
     # to the end of the contig
     for t in a['tids']:
+        has_utr3 = False
         # If the transcript is of a different strand than the contig, skip it
         if (feature_dict[a['target']][t]['feats'][0].strand != a['strand']):
             continue
@@ -1795,31 +1797,25 @@ for align in aligns:
         else:
             subclosest_feat = feature_dict[a['target']][t]['feats'][0]
             dist = abs(subclosest_feat.start - align.reference_start)
-        if (dist < a['min_dist']):
-            a['closest_tid'] = t
-            a['closest_feat'] = subclosest_feat
-            a['min_dist'] = dist
-        if (dist <= 20) and (feature_dict[a['target']][t]['utr3']):
-            a['large_to_small_with_utr3_distance_txt'].insert(0,[t,dist])
-    if (a['min_dist'] < thresh_dist):
-        a['report_closest'] = True
+        if feature_dict[a['target']][t]['utr3']:
+            has_utr3 = True
+        a['close'].append([t,dist,subclosest_feat,has_utr3])
     # Get 3utrs for all overlapping transcripts
     for t in a['tids']:
         utr3 = feature_dict[a['target']][t]['utr3']
         if (utr3):
             a['utr3s'][t] = utr3
-    # Check which transcript that has a 3utr is closest
-    if a['utr3s'] and a['large_to_small_with_utr3_distance_txt']:
-        a['large_to_small_with_utr3_distance_txt'] = sorted(a['large_to_small_with_utr3_distance_txt'])
-        if (not feature_dict[a['target']][a['closest_tid']]['utr3']):
-            a['closest_tid'] = a['large_to_small_with_utr3_distance_txt'][0][0]
-            refr = feature_dict[a['target']][a['closest_tid']]
-            if (a['strand'] == '+'):
-                a['closest_feat'] = refr['feats'][refr['maxfeat']]
-                a['min_dist'] = abs(a['closest_feat'].end - align.reference_end)
-            else:
-                a['closest_feat'] = refr['feats'][0]
-                a['min_dist'] = abs(a['closest_feat'].start - align.reference_start)
+    #a['close'] = [x for x in a['close'] if x[1] < thresh_dist]
+    if (a['close']):
+        a['close'] = sorted(a['close'], key=lambda(x):x[1])
+        within_utr3 = [x for x in a['close'] if x[3] and (x[1] <= thresh_dist)]
+        if within_utr3:
+            within_utr3 = within_utr3[0]
+            a['closest_tid'],a['min_dist'],a['closest_feat'] = within_utr3[:-1]
+        else:
+            a['closest_tid'],a['min_dist'],a['closest_feat'] = a['close'][0][:-1]
+    if (a['min_dist'] <= thresh_dist):
+        a['report_closest'] = True
     # Skip contig if there is no feature close to it
     if not a['closest_tid']:
         continue
@@ -1833,7 +1829,7 @@ for align in aligns:
     #for k in a:
     #    logger.debug(k)
     #    logger.debug(a[k])
-    results = find_polyA_cleavage(a,global_filters)
+    results = find_polyA_cleavage(a,global_filters,feature_dict)
     #print 'results: {}'.format(results)
     if (a['report_closest']):
         if (a['strand'] == '+'):
