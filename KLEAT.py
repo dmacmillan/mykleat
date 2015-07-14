@@ -849,7 +849,7 @@ def annotate_cleavage_site(a, feature_list, cleavage_site, clipped_pos, base, mi
         
         within_utr, identical = False,False
         tidutr3 = None
-        min_dist = 1000000
+        min_dist = 9000000
         dist = None
         for tid in a['utr3s']:
             if (a['strand'] == '+'):
@@ -1670,20 +1670,21 @@ def findBindingSites(a, cleavage_site):
             if (hexamer in binding_sites):
                 results.append([i+cleavage_site-50,binding_sites[hexamer]])
             if (rev in binding_sites):
-                results.append([i+cleavage_site-50,binding_sites[rev]])
+                results.append([cleavage_site+i+6,binding_sites[rev]])
         return results
-    if a['strand'] == '+':
-        seq = refseq.fetch(a['target'],cleavage_site-50,cleavage_site)
-        for i in xrange(len(seq)):
-            hexamer = seq[i:i+6]
-            if (hexamer in binding_sites):
-                results.append([i+cleavage_site-50,binding_sites[hexamer]])
     else:
-        seq = refseq.fetch(a['target'],cleavage_site,cleavage_site+50)
-        for i in xrange(len(seq)):
-            hexamer = revComp(seq[i:i+6])
-            if (hexamer in binding_sites):
-                results.append([i+cleavage_site-50,binding_sites[hexamer]])
+        if a['strand'] == '+':
+            seq = refseq.fetch(a['target'],cleavage_site-50,cleavage_site)
+            for i in xrange(len(seq)):
+                hexamer = seq[i:i+6]
+                if (hexamer in binding_sites):
+                    results.append([i+cleavage_site-50,binding_sites[hexamer]])
+        else:
+            seq = refseq.fetch(a['target'],cleavage_site,cleavage_site+50)
+            for i in xrange(len(seq)):
+                hexamer = revComp(seq[i:i+6])
+                if (hexamer in binding_sites):
+                    results.append([cleavage_site+i+6,binding_sites[hexamer]])
     return results
 
 def findNovel3UTR(a):
@@ -1757,7 +1758,7 @@ for align in aligns:
     # min_dist          = The minimum distance between any transcript and the contig
     a = {'align': align,'closest_tid': None,'closest_feat': None,
          'report_closest': False, 'feature_list': [], 'tids': set(),
-         'min_dist': 1000000, 'utr3s': {}, 'utr5s': {}, 'large_to_small_distance_txt':[]}
+         'min_dist': 1000000, 'utr3s': {}, 'utr5s': {}, 'large_to_small_with_utr3_distance_txt':[]}
     # Get target/chromosome
     a['target'] = aligns.getrname(align.tid)
     # Get the sequence of the contig
@@ -1798,8 +1799,8 @@ for align in aligns:
             a['closest_tid'] = t
             a['closest_feat'] = subclosest_feat
             a['min_dist'] = dist
-            if feature_dict[a['target']][t]['utr3']:
-                a['large_to_small_distance_txt'].insert(0,[t,dist])
+        if (dist <= 20) and (feature_dict[a['target']][t]['utr3']):
+            a['large_to_small_with_utr3_distance_txt'].insert(0,[t,dist])
     if (a['min_dist'] < thresh_dist):
         a['report_closest'] = True
     # Get 3utrs for all overlapping transcripts
@@ -1808,9 +1809,10 @@ for align in aligns:
         if (utr3):
             a['utr3s'][t] = utr3
     # Check which transcript that has a 3utr is closest
-    if a['utr3s'] and a['large_to_small_distance_txt']:
-        if (not feature_dict[a['target']][a['closest_tid']]['utr3']) and (a['large_to_small_distance_txt'][-1][1] <= 20):
-            a['closest_tid'] = a['large_to_small_distance_txt'][-1][0]
+    if a['utr3s'] and a['large_to_small_with_utr3_distance_txt']:
+        a['large_to_small_with_utr3_distance_txt'] = sorted(a['large_to_small_with_utr3_distance_txt'])
+        if (not feature_dict[a['target']][a['closest_tid']]['utr3']):
+            a['closest_tid'] = a['large_to_small_with_utr3_distance_txt'][0][0]
             refr = feature_dict[a['target']][a['closest_tid']]
             if (a['strand'] == '+'):
                 a['closest_feat'] = refr['feats'][refr['maxfeat']]
@@ -1835,13 +1837,17 @@ for align in aligns:
     #print 'results: {}'.format(results)
     if (a['report_closest']):
         if (a['strand'] == '+'):
-            cs = a['closest_feat'].end
+            #cs = a['closest_feat'].end
+            cs = align.reference_end
         else:
-            cs = a['closest_feat'].start
+            #cs = a['closest_feat'].start
+            cs = align.reference_start+1
         res = {'txt': a['closest_tid'], 'cleavage_site': cs, 'within_utr': True,
                'from_end': a['min_dist'], 'ests': None}
         #print 'res: {}'.format(res)
         if not any([(abs(x['cleavage_site'] - res['cleavage_site']) < 5) for x in results]):
+            #if results:
+                #raw_input('This one')
             #print 'appended res!'
             results.append(res)
     if results:
