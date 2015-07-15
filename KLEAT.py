@@ -853,16 +853,21 @@ def annotate_cleavage_site(a, feature_list, cleavage_site, clipped_pos, base, fd
 
         if a['strand'] == '+':
             closest = sorted(a['close'],key=lambda(x):abs(cleavage_site - x[2].end))
+            for i in xrange(len(closest)):
+                closest[i][1] = abs(cleavage_site - closest[i][2].end)
         else:
             closest = sorted(a['close'],key=lambda(x):abs(cleavage_site - x[2].start))
+            for i in xrange(len(closest)):
+                closest[i][1] = abs(cleavage_site - closest[i][2].start)
+        #print 'closest: {}'.format(closest)
+        #raw_input('*')
         if not closest:
             return result
-        if closest:
-            closest_within_utr3 = [x for x in closest if x[3]]
-            if closest_within_utr3 and (closest_within_utr3[0][1] <= 20):
-                closest = closest_within_utr3[0]
-            else:
-                closest = closest[0]
+        closest_within_utr3 = [x for x in closest if x[3]]
+        if closest_within_utr3 and (closest_within_utr3[0][1] <= 20):
+            closest = closest_within_utr3[0]
+        else:
+            closest = closest[0]
         if a['strand'] == '+':
             min_dist = abs(cleavage_site - closest[2].end)
         else:
@@ -1686,6 +1691,9 @@ def findBindingSites(a, cleavage_site):
                 hexamer = revComp(seq[i:i+6])
                 if (hexamer in binding_sites):
                     results.append([cleavage_site+i+6,binding_sites[hexamer]])
+    # Enable this to fix BTL-513
+    if results:
+        results = [sorted(results, key=lambda(x):x[1])[0]]
     return results
 
 def findNovel3UTR(a):
@@ -1808,6 +1816,7 @@ for align in aligns:
     #a['close'] = [x for x in a['close'] if x[1] < thresh_dist]
     if (a['close']):
         a['close'] = sorted(a['close'], key=lambda(x):x[1])
+        #print 'a[close]: {}'.format([[x[0],x[2].start,x[2].end] for x in a['close']])
         within_utr3 = [x for x in a['close'] if x[3] and (x[1] <= thresh_dist)]
         if within_utr3:
             within_utr3 = within_utr3[0]
