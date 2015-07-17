@@ -137,10 +137,15 @@ global_filters['max_diff'] = [int(x) for x in args.max_diff]
 global_filters['max_diff_link'] = args.max_diff_link
 global_filters['min_bridge_size'] = args.min_bridge_size
 global_filters['feature_dict'] = feature_dict
-global_filters['quality_scale'] = {}
-qual_scale = '''!"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~'''
-for i,c in enumerate(qual_scale):
-    global_filters['quality_scale'][c] = i
+global_filters['hexamer_colours'] = ["255,0,0", "255,100,100", "255,150,150", "255,200,200",
+                                     "0,255,0", "100,255,100", "150,255,150", "200,255,200",
+                                     "0,0,255", "100,100,255", "150,150,255", "200,200,255",
+                                     "255,0,255", "255,100,255", "255,150,255", "255,200,255"]
+global_filters['binding_sites'] = ['AATAAA','ATTAAA','AGTAAA','TATAAA',
+                                   'CATAAA','GATAAA','AATATA','AATACA',
+                                   'AATAGA','AAAAAG','ACTAAA','AAGAAA',
+                                   'AATGAA','TTTAAA','AAAACA','GGGGCT']
+global_filters['all_results'] = {}
 
 def ucsc_chroms(genome):
     """Extracts conversion of UCSC chromosome names
@@ -195,9 +200,6 @@ def get_coding_type(transcript):
 
 def cantorPairing(a,b):
     return (0.5*(a+b)*(a+b+1))+b
-
-def gp_and_filt(all_results, outfile, filters):
-    return None
 
 def group_and_filter(lines_result, out_file, filters=None, make_track=None, rgb='0,0,0'):
     #print 'grouping and filtering'
@@ -1760,8 +1762,18 @@ def fetchUtrs(a, feature_list, first_cds, last_cds):
         utr3e = fl[first_cds]['feature'].start
     return [[utr3s,utr3e],[utr5s,utr5e]]
 
+def filter_contig_sites(contig_sites,fd):
+    res = []
+    for event in contig_sites:
+        if (all([(abs(event['cleavage_site'] - cs ) >= 20) for cs in fd[event['a']['target']][event['txt']]['cleavage_sites']])):
+            res.append(event)
+    return res
+
+# Short variable for variable containing all result info
+#ar = global_filters['all_results']
 # If the distance between any transcript end and the contig end is
 # less than this value, the transcript end should be reported as a cleavage event
+contig_sites = []
 thresh_dist = 20
 lines_result = lines_bridge = lines_link = ''
 for align in aligns:
@@ -1872,13 +1884,13 @@ for align in aligns:
         else:
             cs = align.reference_start+1
         res = {'txt': a['closest_tid'], 'cleavage_site': cs, 'within_utr': True,
-               'from_end': a['min_dist'], 'ests': None}
-        #print 'res: {}'.format(res)
-        if not any([(abs(x['cleavage_site'] - res['cleavage_site']) < 5) for x in results]):
-            #if results:
-                #raw_input('This one')
-            #print 'appended res!'
-            results.append(res)
+               'from_end': a['min_dist'], 'ests': None, 'a': {'target': a['target'],
+               'align': align, 'utr3s': a['utr3s']}}
+        try:
+            res['a']['binding_sites'] = findBindingSites(a, res['cleavage_site'])
+        except TypeError:
+            res['a']['binding_sites'] = None
+        contig_sites.append(res)
     if results:
         for result in results:
             # If there is already a cs close to the end, we don't need the implied one
@@ -1887,7 +1899,15 @@ for align in aligns:
             except TypeError:
                 a['binding_sites'] = None
             lines_result += output_result(a, result, output_fields, feature_dict, link_pairs=link_pairs)
+            # check if chrom is in all_results
                 
+contig_sites = filter_contig_sites(contig_sites,feature_dict)
+for result in contig_sites:
+    #print result
+    #print output_result(result['a'], result, output_fields, feature_dict, link_pairs=link_pairs)
+    #raw_input('^'*20)
+    lines_result += output_result(result['a'], result, output_fields, feature_dict, link_pairs=link_pairs)
+
 # close output streams
 reads_to_check.close()
 FNULL = open(os.devnull, 'w')
