@@ -1928,11 +1928,10 @@ for result in lines_result:
     bridge_reads = result[14].split(',')
     for read in bridge_reads:
         if read in blat_results:
-            result[12] = str(int(result[12]) - 1)
             bridge_reads.remove(read)
-            if (int(result[12]) == 0) and (result[10] == '-'):
-                continue
-    if bridge_reads:
+    if (not bridge_reads) and (result[10] == '-'):
+        continue
+    elif bridge_reads:
         result[14] = bridge_reads
     else:
         result[14] = '-'
