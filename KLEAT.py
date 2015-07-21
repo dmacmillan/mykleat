@@ -527,6 +527,7 @@ def is_polyA_tail(seq, expected_base, min_len, max_nonAT_allowed):
     max_nonAT_allowed(N,M) = N base(s) other than expected base allowed
                              per stretch of M bases
     """
+    #print '{}\t{}\t{}\t{}'.format(seq,expected_base,min_len,max_nonAT_allowed)
     result = True
 
     if seq is None or seq == '' or expected_base is None or not expected_base in seq:
@@ -534,6 +535,7 @@ def is_polyA_tail(seq, expected_base, min_len, max_nonAT_allowed):
         
     # minimum number of As or Ts
     freq = check_freq(seq)
+    #print freq
     if freq[expected_base] < min_len:
         return False
 
@@ -545,7 +547,9 @@ def is_polyA_tail(seq, expected_base, min_len, max_nonAT_allowed):
     if (non_base == 0):
         return True
     ratio = float(freq[expected_base])/non_base
-    if (ratio <= max_nonAT_allowed[1]/max_nonAT_allowed[0]):
+    #print 'ratio: {}'.format(ratio)
+    #print 'max_nonAT: {}'.format(max_nonAT_allowed[1]/max_nonAT_allowed[0])
+    if (ratio < max_nonAT_allowed[1]/max_nonAT_allowed[0]):
         return False
 
 #    for i in range(0, len(seq), max_nonAT_allowed[1]):
@@ -843,6 +847,8 @@ def annotate_cleavage_site(a, feature_list, cleavage_site, clipped_pos, base, fd
         else:
             txt_strand = '-'
             
+    #print 'txt_strand: {}'.format(txt_strand)
+    #print 'base: {}'.format(base)
     if (txt_strand == '+' and base == 'A') or\
        (txt_strand == '-' and base == 'T'):     
         ests = []
@@ -908,6 +914,7 @@ def annotate_cleavage_site(a, feature_list, cleavage_site, clipped_pos, base, fd
             }
 
         #print '\tcs: {}\ttxt: {}'.format(cleavage_site,closest_tid)
+    #print 'annotate_result: {}'.format(result)
     return result
 
 def find_polyA_cleavage(a,gf,fd):
@@ -1056,6 +1063,11 @@ def find_bridge_reads(a, min_len, mismatch, gf, genome_buffer=1000, tail=None):
                 # for trimming of poor quality bases if so descired
                 clipped_qual = read.qual[-1 * read.cigar[-1][1]:]
                 
+            # Experimental feature
+            offset = 33
+            if args.trim_reads:
+                if any([(ord(x)-offset) <= args.trim_reads for x in read.qual]):
+                    continue
             # if last_match is beyond the limit of the alignment, adjust last_matched
             if last_matched < query_bounds[0] or last_matched > query_bounds[1]:
                 if last_matched < query_bounds[0]:
@@ -1100,8 +1112,11 @@ def find_bridge_reads(a, min_len, mismatch, gf, genome_buffer=1000, tail=None):
                 #print 'min_len: {}'.format(min_len)
                 #print 'mismatch: {}'.format(mismatch)
                 #raw_input('*'*20)
+                #print '{}\t{}\t{}\t{}'.format(read.qname,base,clipped_pos,clipped_seq_genome)
                 if is_bridge_read_good(clipped_seq_genome, base, min_len, mismatch):
-                    #print '{}\t{}\t{}\t{}'.format(read.qname,base,clipped_pos,clipped_seq_genome)
+                    #print 'yes'
+#                    print 'below is good bridge_read'
+#                    print '{}\t{}\t{}\t{}'.format(read.qname,base,clipped_pos,clipped_seq_genome)
                     if not clipped_reads[clipped_pos].has_key(last_matched):
                         clipped_reads[clipped_pos][last_matched] = {}
                     if not clipped_reads[clipped_pos][last_matched].has_key(base):
@@ -1272,6 +1287,8 @@ def find_tail_contig(a, min_len, mismatch):
                                         
                 perfect = is_polyA_tail(clipped_seq_genome, base, min_len=1, max_nonAT_allowed=[0, 1])
                 imperfect = is_polyA_tail(clipped_seq_genome, base, min_len=min_len, max_nonAT_allowed=mismatch)
+                #print 'perfect: {}'.format(perfect)
+                #print 'imperfect: {}'.format(imperfect)
                 
                 if perfect or imperfect:
                     # don't need to do the following 2 checks if it's not a potential tail
@@ -1305,7 +1322,7 @@ def find_tail_contig(a, min_len, mismatch):
     if not clipped['start'] and not clipped['end']:
         results = None
         
-    #print 'find_tail_contig results:\n{}'.format(results)
+#    print 'find_tail_contig results:\n{}'.format(results)
     return results
 
 def align_transcript_seq(align, target, query_seqs, label, parse_fn):
@@ -1371,26 +1388,6 @@ def align_transcript_seq(align, target, query_seqs, label, parse_fn):
             
     return result
 
-def get_full_blat_aln(aln_file):
-    """Extracts full hits from BLAT aligments
-    
-    This is used for removing false-positive bridge reads where their entirety in
-    sequence can be mapped to a single transcript
-    """
-    fully_aligned = {}
-    for line in open(aln_file, 'r'):
-        if not re.search('^\d', line):
-            continue
-        cols = line.rstrip('\n').split('\t')
-        query, qsize, qstart, qend, target = cols[9:14]
-        block_count = cols[17]
-        #print 'aln', query, qsize, qstart, qend, block_count, target
-        
-        if int(qstart) == 0 and int(qsize) == int(qend) and int(block_count) == 1:
-            fully_aligned[query] = True
-        
-    return fully_aligned
-
 def extract_transcript_seq(align, target, out_file):
     """Extracts transcripts overlapping an alignment and outputs their
     sequences to the given file
@@ -1429,7 +1426,7 @@ def get_full_blat_aln(aln_file):
         cols = line.rstrip('\n').split('\t')
         query, qsize, qstart, qend, target = cols[9:14]
         block_count = cols[17]
-        #print 'aln', query, qsize, qstart, qend, block_count, target
+        #print 'ver2 aln', query, qsize, qstart, qend, block_count, target
         
         if int(qstart) == 0 and int(qsize) == int(qend) and int(block_count) == 1:
             fully_aligned[query] = True
@@ -1908,6 +1905,7 @@ for result in contig_sites:
     #raw_input('^'*20)
     lines_result += output_result(result['a'], result, output_fields, feature_dict, link_pairs=link_pairs)
 
+print lines_result
 # close output streams
 reads_to_check.close()
 FNULL = open(os.devnull, 'w')
@@ -1919,28 +1917,25 @@ blat_alignment = os.path.join(os.path.dirname(args.out),'.blat_alignment')
 task = subprocess.Popen(['blat', args.ref_genome, reads_to_check, blat_alignment], stdout=FNULL)
 task.communicate()
 print "Blat complete"
-bend = [time.time(), time.strftime("%c")]
+#bend = [time.time(), time.strftime("%c")]
 blat_results = get_full_blat_aln(blat_alignment)
 #print 'blat_results: {}'.format(blat_results)
-#print 'lines_result:\n{}'.format(lines_result)
-#with open('./lines_result','w') as o:
-#    o.write(lines_result)
 lines_result = lines_result.splitlines()
-length = len(lines_result)
-i = 0
-while (i < length):
-    result = lines_result[i].split('\t')
-    reads = result[14].split(',')
-    len_reads = len(reads)
-    for read in reads:
-        #print 'looking at read: {}'.format(read)
+keep = []
+print 'lines_result: {}'.format(lines_result)
+for result in lines_result:
+    result = result.split('\t')
+    bridge_reads = result[14].split(',')
+    for read in bridge_reads:
         if read in blat_results:
-            #print '{} in {}!'.format(read, blat_results)
-            len_reads -= 1
-            if (len_reads < 1):
-                del(lines_result[i])
-                i -= 1
-                length -= 1
-    i += 1
-lines_result = ('\n').join(lines_result)
+            result[12] = str(int(result[12]) - 1)
+            bridge_reads.remove(read)
+            if (int(result[12]) == 0) and (result[10] == '-'):
+                continue
+    if bridge_reads:
+        result[14] = bridge_reads
+    else:
+        result[14] = '-'
+    keep.append(('\t').join(result))
+lines_result = ('\n').join(keep)
 group_and_filter(lines_result, args.out+'.KLEAT', filters=global_filters, make_track=args.track, rgb=args.rgb)
