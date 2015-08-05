@@ -31,7 +31,6 @@ parser.add_argument('-k', '--track', metavar=('[name]','[description]'), help='N
 parser.add_argument('--rgb', help='RGB value of BED graph. Default is 0,0,255', default='0,0,255')
 parser.add_argument('-c', help='Specify a contig/s to look at.', nargs='+')
 parser.add_argument('--link', action='store_true', help='Enable searching for cleavage site link evidence. This will substantially increase runtime.')
-parser.add_argument('--resume', action='store_true', help='Resume KLEAT from last known call')
 
 args = parser.parse_args()
 #logging.basicConfig(level=logging.DEBUG)
@@ -137,20 +136,15 @@ basedir = os.path.dirname(args.out)
 if not os.path.exists(basedir):
     os.makedirs(basedir)
 #out_link_pairs = open(os.path.join(basedir,prefix+'-link.fa'), 'a')
-if args.resume:
-    potential_bridges = open(os.path.join(basedir,'.potential_bridges'), 'a+')
-    extended = open(os.path.join(basedir,'.extended'), 'a+')
-else:
-    potential_bridges = open(os.path.join(basedir,'.potential_bridges'), 'w')
-    extended = open(os.path.join(basedir,'.extended'), 'w')
+potential_bridges = open(os.path.join(basedir,'.potential_bridges'), 'w')
+extended = open(os.path.join(basedir,'.extended'), 'w')
 
-if not os.path.isfile(args.out+'.transcript_seqs'):
-    transcript_seqs = open(args.out+'.transcript_seqs','w')
-    for chrom in feature_dict:
-        for tid in feature_dict[chrom]:
-            current = feature_dict[chrom][tid]
-            transcript_seqs.write('>{}\n{}\n'.format(tid,current['seq']))
-    transcript_seqs.close()
+transcript_seqs = open(args.out+'.transcript_seqs','w')
+for chrom in feature_dict:
+    for tid in feature_dict[chrom]:
+        current = feature_dict[chrom][tid]
+        transcript_seqs.write('>{}\n{}\n'.format(tid,current['seq']))
+transcript_seqs.close()
 
 # Filters (filters)
 global_filters = {}
@@ -1807,51 +1801,13 @@ def filter_contig_sites(contig_sites,fd):
 # less than this value, the transcript end should be reported as a cleavage event
 thresh_dist = 20
 lines_result = lines_bridge = lines_link = ''
-if args.resume:
-    go = False
-    print "Resuming..."
-    file_lines_result = open(args.out+'.lr','a+')
-    lines_result = file_lines_result.readlines()
-    last_contig = lines_result[-1].split('\t')[4]
-    lines_result = ('').join(lines_result)
-    contig_sites_file = open(args.out+'.cs','a+')
-    contig_sites = contig_sites_file.readlines()
-    contig_sites = [x.strip().split('\t') for x in contig_sites]
-    temp = []
-    for i in xrange(len(contig_sites)):
-        cs = contig_sites[i]
-        cs = {'txt': cs[1],'cleavage_site': int(cs[6]),'within_utr': cs[7],'from_end': int(cs[8]),'ests': cs[9], 'binding_sites': cs[19],'a': {'target': cs[5],'utr3s': cs[20], 'qname': cs[4]}}
-        if cs['binding_sites'] != '-':
-            cs['binding_sites'] = [int(x) for x in cs['binding_sites'].split(':')]
-        else:
-            cs['binding_sites'] = None
-        if cs['a']['utr3s'] != '-':
-            cs['a']['utr3s'] = cs['a']['utr3s'].split('-')
-            cs['a']['utr3s'] = {cs['txt']:[int(cs['a']['utr3s'][0]),int(cs['a']['utr3s'][1])]}
-        else:
-            cs['a']['utr3s'] = None
-        temp.append(cs)
-    contig_sites = temp
-    del(temp)
-    result_link = link_pairs = None
-else:
-    file_lines_result = open(args.out+'.lr','w')
-    contig_sites_file = open(args.out+'.cs','w')
-    contig_sites = []
+file_lines_result = open(args.out+'.lr','w')
+contig_sites_file = open(args.out+'.cs','w')
+contig_sites = []
 for align in aligns:
     # If contigs are specified only look at those
     if args.c:
         if align.query_name not in args.c:
-            continue
-    if args.resume:
-        if not go:
-            continue
-        if (align.query_name == last_contig):
-            go = True
-            continue
-    # Filtering of contigs
-    if align.alen and align.qlen:
-        if (float(align.alen)/align.qlen) < 0.6:
             continue
     #sys.stdout.write('{}-{}-{}{}\n'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
     print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
@@ -1870,6 +1826,10 @@ for align in aligns:
     a['target'] = aligns.getrname(align.tid)
     # Get the sequence of the contig
     a['contig_seq'] = contigs.fetch(align.query_name)
+    # Filtering of contigs
+    if align.query_alignment_length and len(a['contig_seq']):
+        if (float(align.query_alignment_length)/len(a['contig_seq'])) < 0.6:
+            continue
     # Get the overlapping features
     try:
         feats = features.fetch(a['target'], align.reference_start, align.reference_end)
@@ -1991,6 +1951,7 @@ print "Blat alignment complete"
 #print 'blat_alignment: {}'.format(blat_alignment)
 #bend = [time.time(), time.strftime("%c")]
 blat_genome_results = get_blat_aln(blat_alignment)
+blat_transcript_results = get_blat_aln(blat_alignment2)
 #for read in blat_genome_results:
 #    print read
 #    print blat_genome_results[read]
@@ -2014,12 +1975,30 @@ for result in lines_result:
     print 'target: {}'.format(target)
     print 'cleavage_site: {}'.format(cleavage_site)
     for read in bridge_reads:
+        skip = False
         maxlocal = maxnonlocal = None
         print 'looking at read: {}'.format(read)
         if read not in blat_genome_results:
-            print 'Read {} not in blat results!'.format(read)
+            print 'Read {} not in blat genome results!'.format(read)
             continue
-        print blat_genome_results[read]
+        if read not in blat_transcript_results:
+            print 'Read {} not in blat transcript results!'.format(read)
+            continue
+        #print blat_transcript_results[read]
+        for x in blat_transcript_results[read]:
+            if ('-' in [x[0:5],x[6:8]]):
+                print 'One of the alignment columns is "-"'
+                continue
+            if ((x[0]!=x[2]) or (x[1]!=0) or (x[4]!=1)):
+                print 'Removing read because qstart != 0 or qend != qlen or block_len != 1'
+                bridge_reads.remove(read)
+                result[13] = '-'
+                result[15] = str(int(result[15]) - 1)
+                skip = True
+                break
+        if skip:
+            continue
+        #print blat_genome_results[read]
         for x in blat_genome_results[read]:
             if ('-' in [x[0:5],x[6:8]]):
                 print 'One of the alignment columns is "-"'
@@ -2066,6 +2045,7 @@ for result in contig_sites:
     #print output_result(result['a'], result, output_fields, feature_dict, link_pairs=link_pairs)
     #raw_input('^'*20)
     lines_result += output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
-    file_lines_result.write(output_result(result, output_fields, feature_dict, link_pairs=link_pairs))
 #print 'final lines_result: {}'.format(repr(lines_result))
+file_lines_result.write(lines_result)
+file_lines_result.close()
 group_and_filter(lines_result, args.out+'.KLEAT', filters=global_filters, make_track=args.track, rgb=args.rgb)
