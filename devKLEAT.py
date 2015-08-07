@@ -7,6 +7,7 @@ import os
 import sys
 import re
 import subprocess
+import shutil
 # External modules below
 import pysam
 
@@ -135,6 +136,9 @@ prefix = os.path.splitext(args.out)[0]
 basedir = os.path.dirname(args.out)
 if not os.path.exists(basedir):
     os.makedirs(basedir)
+print os.path.realpath(__file__)
+#shutil.copyfile(os.path.realpath(__file__),os.path.join(basedir,'KLEAT.py'))
+shutil.copy(os.path.realpath(__file__),basedir)
 #out_link_pairs = open(os.path.join(basedir,prefix+'-link.fa'), 'a')
 potential_bridges = open(os.path.join(basedir,'.potential_bridges'), 'w')
 extended = open(os.path.join(basedir,'.extended'), 'w')
@@ -1950,8 +1954,12 @@ task.communicate()
 print "Blat alignment complete"
 #print 'blat_alignment: {}'.format(blat_alignment)
 #bend = [time.time(), time.strftime("%c")]
+print 'getting genome blat results...'
 blat_genome_results = get_blat_aln(blat_alignment)
+print 'Done!'
+print 'getting transcript blat results...'
 blat_transcript_results = get_blat_aln(blat_alignment2)
+print 'Done!'
 #for read in blat_genome_results:
 #    print read
 #    print blat_genome_results[read]
@@ -1963,69 +1971,56 @@ keep = []
 for result in lines_result:
     result = result.split('\t')
     target = result[5]
+    transcript = result[1]
     cleavage_site = int(result[6])
     bridge_reads = result[14].split(',')
+    temp = bridge_reads[:]
     has_tail = (result[10] != '0')
-    removeread = False
-    #print 'bridge_reads: {}'.format(bridge_reads)
+    if (bridge_reads == ['-']): 
+        if (has_tail):
+            keep.append(('\t').join(result))
+            continue
+        else:
+            continue
     #[int(qsize),int(qstart),int(qend),target,int(block_count),score,int(tstart),int(tend)]
-    if bridge_reads == ['-'] and not (has_tail):
-        #print 'no bridge reads and no tail'
-        continue
-    print 'target: {}'.format(target)
-    print 'cleavage_site: {}'.format(cleavage_site)
-    for read in bridge_reads:
-        skip = False
+    for read in temp:
+        remove_read = False
         maxlocal = maxnonlocal = None
-        print 'looking at read: {}'.format(read)
+        has_target_aln = False
         if read not in blat_genome_results:
-            print 'Read {} not in blat genome results!'.format(read)
             continue
-        if read not in blat_transcript_results:
-            print 'Read {} not in blat transcript results!'.format(read)
+        if read == '-':
             continue
-        #print blat_transcript_results[read]
-        for x in blat_transcript_results[read]:
-            if ('-' in [x[0:5],x[6:8]]):
-                print 'One of the alignment columns is "-"'
-                continue
-            if ((x[0]!=x[2]) or (x[1]!=0) or (x[4]!=1)):
-                print 'Removing read because qstart != 0 or qend != qlen or block_len != 1'
-                bridge_reads.remove(read)
-                result[13] = '-'
-                result[15] = str(int(result[15]) - 1)
-                skip = True
-                break
-        if skip:
-            continue
-        #print blat_genome_results[read]
+        print 'Looking at read {}'.format(read)
         for x in blat_genome_results[read]:
-            if ('-' in [x[0:5],x[6:8]]):
-                print 'One of the alignment columns is "-"'
+            print '  Looking at alignment {}'.format(x)
+            # If the alignment does not match the target and does
+            # not align fully to the genome, then we don't care
+            if (x[3] != target) and ((x[1] != 0) or (x[0] != x[2]) or (x[4] != 1)):
                 continue
-            if (x[3] != target) and not ((x[0]==x[2]) and (x[1]==0) and (x[4]==1)):
-                print '{}\t{}\t{}\t{}\t{}'.format(x[3],x[0],x[2],x[1],x[4])
-                print 'not target and qstart !=0 and qsize != qend and block_count != 1'
-                continue
-            if ((x[3]==target) and not (cleavage_site == int(x[7]))):
-                print 'Read target matches cs target but cleavage site is not within span of read alignment'
-                continue
-            if (x[3] == target) and (x[5] > maxlocal):
+            # If none of the alignments match the cs target
+            # then this read should be removed and noted
+            if (x[3] == target) and (x[7] == cleavage_site) and (x[5] > maxlocal):
+                has_target_aln = True
                 maxlocal = x[5]
-                print 'maxlocal: {}'.format(maxlocal)
-            elif (x[3] != target) and (x[5] > maxnonlocal):
+            if (x[3] != target) and (x[5] > maxnonlocal):
                 maxnonlocal = x[5]
-                print 'maxnonlocal: {}'.format(maxnonlocal)
-        if maxlocal and maxnonlocal:
-            if maxnonlocal > maxlocal:
-                bridge_reads.remove(read)
-                result[13] = '-'
-                result[15] = str(int(result[15]) - 1)
-    if (not bridge_reads) and not (has_tail):
+        if (maxnonlocal > maxlocal) or not (has_target_aln):
+            remove_read = True
+        # Check transcript alignments
+        if read not in blat_transcript_results:
+            continue
+        elif any([((x[3] == transcript) and (x[1] == 0) and (x[0] == x[2]) and (x[4] == 1)) for x in blat_transcript_results[read]]):
+            remove_read = True
+        if remove_read:
+            temp.remove(read)
+            result[13] = '-'
+            result[15] = str(int(result[15]) - 1)
+    if not temp and not has_tail:
         continue
-    elif bridge_reads:
-        result[14] = (',').join(bridge_reads)
-        result[12] = str(len(bridge_reads))
+    elif temp and temp != ['-']:
+        result[14] = (',').join(temp)
+        result[12] = str(len(temp))
     else:
         result[14] = '-'
         result[12] = '0'
@@ -2044,8 +2039,9 @@ for result in contig_sites:
 #    print result
     #print output_result(result['a'], result, output_fields, feature_dict, link_pairs=link_pairs)
     #raw_input('^'*20)
-    lines_result += output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
+    temp = output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
+    lines_result += temp
+    file_lines_result.write(temp)
 #print 'final lines_result: {}'.format(repr(lines_result))
-file_lines_result.write(lines_result)
 file_lines_result.close()
 group_and_filter(lines_result, args.out+'.KLEAT', filters=global_filters, make_track=args.track, rgb=args.rgb)

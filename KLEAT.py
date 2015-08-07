@@ -7,6 +7,7 @@ import os
 import sys
 import re
 import subprocess
+import shutil
 # External modules below
 import pysam
 
@@ -31,7 +32,6 @@ parser.add_argument('-k', '--track', metavar=('[name]','[description]'), help='N
 parser.add_argument('--rgb', help='RGB value of BED graph. Default is 0,0,255', default='0,0,255')
 parser.add_argument('-c', help='Specify a contig/s to look at.', nargs='+')
 parser.add_argument('--link', action='store_true', help='Enable searching for cleavage site link evidence. This will substantially increase runtime.')
-parser.add_argument('--resume', action='store_true', help='Resume KLEAT from last known call')
 
 args = parser.parse_args()
 #logging.basicConfig(level=logging.DEBUG)
@@ -94,10 +94,15 @@ for c in f:
         current['stop_codon'] = current['i']
     current['i'] += 1
 
+
 # Go through the feature_dict and try to determine 3utrs and 5utrs
 for chrom in feature_dict:
     for tid in feature_dict[chrom]:
         current = feature_dict[chrom][tid]
+#        if not current['cstart']:
+#            current['cstart'] = current['tstart']
+#        if not current['cend']:
+#            current['cend'] = current['tend']
         current['seq'] = ('').join([refseq.fetch(x.contig,x.start,x.end).upper() for x in current['feats'] if x.feature =='exon'])
         if (current['feats'][0].strand == '+'):
             if (current['cend']) and (current['tend'] > current['cend']+3):
@@ -131,11 +136,19 @@ prefix = os.path.splitext(args.out)[0]
 basedir = os.path.dirname(args.out)
 if not os.path.exists(basedir):
     os.makedirs(basedir)
+print os.path.realpath(__file__)
+#shutil.copyfile(os.path.realpath(__file__),os.path.join(basedir,'KLEAT.py'))
+shutil.copy(os.path.realpath(__file__),basedir)
 #out_link_pairs = open(os.path.join(basedir,prefix+'-link.fa'), 'a')
-if args.resume:
-    reads_to_check = open(os.path.join(basedir,'.reads_to_check'), 'a+')
-else:
-    reads_to_check = open(os.path.join(basedir,'.reads_to_check'), 'w')
+potential_bridges = open(os.path.join(basedir,'.potential_bridges'), 'w')
+extended = open(os.path.join(basedir,'.extended'), 'w')
+
+transcript_seqs = open(args.out+'.transcript_seqs','w')
+for chrom in feature_dict:
+    for tid in feature_dict[chrom]:
+        current = feature_dict[chrom][tid]
+        transcript_seqs.write('>{}\n{}\n'.format(tid,current['seq']))
+transcript_seqs.close()
 
 # Filters (filters)
 global_filters = {}
@@ -167,6 +180,7 @@ def ucsc_chroms(genome):
             conversions[chr_from] = chr_to
             
     return conversions
+
 
 def compare_chr(chr1, chr2):
     """For sorting chromosome names ignoring 'chr'"""
@@ -269,8 +283,9 @@ def group_and_filter(lines_result, out_file, filters=None, make_track=None, rgb=
             if (result[10] != '-') and (result[12] != '-') and (result[16] != '-'):
                 if (int(result[10]) == 0) and (int(result[12]) == 0) and (int(result[16]) == 0):
                     continue
-                                    
-            if result[12] != '-':
+            
+            if ('-' not in [result[12],result[13]]):
+            #if (result[12] != '-'):
                 if (filters) and ('min_bridge_size' in filters) and ((int(result[12]) > 0) and (int(result[13]) < filters['min_bridge_size'])):
                     continue
                 
@@ -499,17 +514,22 @@ def tpos_to_qpos(a,tpos):
     return qpos
 
 def qpos_to_tpos(a, qpos):
-    blocks = align.blocks
-    if align.is_reverse:
-        strand = '-'
-    else:
-        strand = '+'
+#    blocks = align.blocks
+#    if align.is_reverse:
+#        strand = '-'
+#    else:
+#        strand = '+'
+    blocks = a['align'].blocks
+    #print 'qpos: {}'.format(qpos)
+    #print 'qblocks: {}'.format(a['qblocks'])
     for i in xrange(len(a['qblocks'])):
         qb0 = a['qblocks'][i][0]
         qb1 = a['qblocks'][i][1]
+        #print 'qb0: {}, qb1: {}'.format(qb0,qb1)
         if ((qpos >= qb0) and (qpos <= qb1)) or ((qpos <= qb0) and (qpos >= qb1)):
             block = i
             break
+    #print 'block: {}'.format(block)
     tpos = None
     try:
         if (a['strand'] == '+'):
@@ -517,6 +537,7 @@ def qpos_to_tpos(a, qpos):
         else:
             tpos = blocks[block][1] - (qpos - a['qblocks'][block][1])
     except NameError:
+        #print 'NameError'
         pass
     return tpos
 
@@ -876,6 +897,7 @@ def annotate_cleavage_site(a, cleavage_site, clipped_pos, base, fd, min_txt_matc
         closest_tid = None
         min_dist = 9000000
         closest = None
+        #print 'cleavage_site: {}'.format(cleavage_site)
 
         if a['strand'] == '+':
             closest = sorted(a['close'],key=lambda(x):abs(cleavage_site - fd[a['target']][x[0]]['tend']))
@@ -1031,6 +1053,15 @@ def merge_clipped_reads(clipped_reads, extended_clipped_reads):
                     else:
                         clipped_reads[clipped_pos][pos][base].extend(extended_clipped_reads[clipped_pos][pos][base])
 
+#def isExtendedBridgeRead(read,contig):
+#    if contig.is_reverse:
+#        start = contig.reference_start - (read.query_length - (read.reference_start - read.reference_end))
+#        end = contig.reference_start
+#    else:
+#        start = contig.reference_end - (read.reference_start - read.reference_end))
+#        end = contig.reference_end
+#    return None
+
 def find_bridge_reads(a, min_len, mismatch, gf, genome_buffer=1000, tail=None):
     #print "Running find_bridge_reads"
     """Finds bridge reads
@@ -1135,9 +1166,10 @@ def find_bridge_reads(a, min_len, mismatch, gf, genome_buffer=1000, tail=None):
                         clipped_reads[clipped_pos][last_matched][base] = []
                     clipped_reads[clipped_pos][last_matched][base].append([read, clipped_seq_genome, pos_genome])
                     picked = True
-                    reads_to_check.write('>{}\n{}\n'.format(read.qname,read.seq))#read_name,read_objs[read_name].seq))
+                    potential_bridges.write('>{}\n{}\n'.format(read.qname,read.seq))#read_name,read_objs[read_name].seq))
                     
             if not picked:
+                extended.write('>{}\n{}\n'.format(read.qname,read.seq))
                 second_round[clipped_pos].append(read)
                 #extended.write('>{}\t{}\n{}\n'.format(a['align'].qname, read.qname, read.seq))
     #print 'clipped_reads:\n{}'.format(clipped_reads)
@@ -1334,7 +1366,7 @@ def find_tail_contig(a, min_len, mismatch):
     if not clipped['start'] and not clipped['end']:
         results = None
         
-#    print 'find_tail_contig results:\n{}'.format(results)
+    #print 'find_tail_contig results:\n{}'.format(results)
     return results
 
 def align_transcript_seq(align, target, query_seqs, label, parse_fn):
@@ -1425,12 +1457,27 @@ def extract_transcript_seq(align, target, out_file):
     
     return empty
 
+def calcScore(match, mismatch, qnuminsert, tnuminsert):
+    return int(match) - int(mismatch) - int(qnuminsert) - int(tnuminsert)
+
+def get_blat_aln(aln_file):
+    result = {}
+    with open(aln_file, 'r') as f:
+        for line in f:
+            if not re.search('^\d', line):
+                continue
+            cols = line.rstrip('\n').split('\t')
+            query, qsize, qstart, qend, target = cols[9:14]
+            block_count = cols[17]
+            tstart,tend = cols[15],cols[16]
+            score = calcScore(cols[0],cols[1],cols[4],cols[6])
+            if query not in result:
+                result[query] = [[int(qsize),int(qstart),int(qend),target,int(block_count),score,int(tstart),int(tend)]]
+            else:
+                result[query].append([int(qsize),int(qstart),int(qend),target,int(block_count),score,int(tstart),int(tend)])
+    return result
+
 def get_full_blat_aln(aln_file):
-    """Extracts full hits from BLAT aligments
-    
-    This is used for removing false-positive bridge reads where their entirety in
-    sequence can be mapped to a single transcript
-    """
     fully_aligned = {}
     for line in open(aln_file, 'r'):
         if not re.search('^\d', line):
@@ -1438,12 +1485,36 @@ def get_full_blat_aln(aln_file):
         cols = line.rstrip('\n').split('\t')
         query, qsize, qstart, qend, target = cols[9:14]
         block_count = cols[17]
-        #print 'ver2 aln', query, qsize, qstart, qend, block_count, target
-        
+        score = calcScore(cols[0],cols[1],cols[4],cols[6])
         if int(qstart) == 0 and int(qsize) == int(qend) and int(block_count) == 1:
-            fully_aligned[query] = True
-        
+            if query not in fully_aligned:
+                fully_aligned[query] = {target: [score]}
+            else:
+                if target not in fully_aligned[query]:
+                    fully_aligned[query] = {target: [score]}
+                else:
+                    fully_aligned[query][target].append(score)
     return fully_aligned
+
+#def get_full_blat_aln(aln_file):
+#    """Extracts full hits from BLAT aligments
+#    
+#    This is used for removing false-positive bridge reads where their entirety in
+#    sequence can be mapped to a single transcript
+#    """
+#    fully_aligned = {}
+#    for line in open(aln_file, 'r'):
+#        if not re.search('^\d', line):
+#            continue
+#        cols = line.rstrip('\n').split('\t')
+#        query, qsize, qstart, qend, target = cols[9:14]
+#        block_count = cols[17]
+#        #print 'ver2 aln', query, qsize, qstart, qend, block_count, target
+#        
+#        if int(qstart) == 0 and int(qsize) == int(qend) and int(block_count) == 1:
+#            fully_aligned[query] = True
+#        
+#    return fully_aligned
 
 def get_partial_blat_aln(aln_file):
     """Extracts single-block, partial hits from BLAT aligments
@@ -1734,47 +1805,13 @@ def filter_contig_sites(contig_sites,fd):
 # less than this value, the transcript end should be reported as a cleavage event
 thresh_dist = 20
 lines_result = lines_bridge = lines_link = ''
-if args.resume:
-    go = False
-    print "Resuming..."
-    file_lines_result = open(args.out+'.lr','a+')
-    lines_result = file_lines_result.readlines()
-    last_contig = lines_result[-1].split('\t')[4]
-    lines_result = ('').join(lines_result)
-    contig_sites_file = open(args.out+'.cs','a+')
-    contig_sites = contig_sites_file.readlines()
-    contig_sites = [x.strip().split('\t') for x in contig_sites]
-    temp = []
-    for i in xrange(len(contig_sites)):
-        cs = contig_sites[i]
-        cs = {'txt': cs[1],'cleavage_site': int(cs[6]),'within_utr': cs[7],'from_end': int(cs[8]),'ests': cs[9], 'binding_sites': cs[19],'a': {'target': cs[5],'utr3s': cs[20], 'qname': cs[4]}}
-        if cs['binding_sites'] != '-':
-            cs['binding_sites'] = [int(x) for x in cs['binding_sites'].split(':')]
-        else:
-            cs['binding_sites'] = None
-        if cs['a']['utr3s'] != '-':
-            cs['a']['utr3s'] = cs['a']['utr3s'].split('-')
-            cs['a']['utr3s'] = {cs['txt']:[int(cs['a']['utr3s'][0]),int(cs['a']['utr3s'][1])]}
-        else:
-            cs['a']['utr3s'] = None
-        temp.append(cs)
-    contig_sites = temp
-    del(temp)
-    result_link = link_pairs = None
-else:
-    file_lines_result = open(args.out+'.lr','w')
-    contig_sites_file = open(args.out+'.cs','w')
-    contig_sites = []
+file_lines_result = open(args.out+'.lr','w')
+contig_sites_file = open(args.out+'.cs','w')
+contig_sites = []
 for align in aligns:
     # If contigs are specified only look at those
     if args.c:
         if align.query_name not in args.c:
-            continue
-    if args.resume:
-        if not go:
-            continue
-        if (align.query_name == last_contig):
-            go = True
             continue
     #sys.stdout.write('{}-{}-{}{}\n'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
     print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
@@ -1786,13 +1823,17 @@ for align in aligns:
     # closest_tid       = Set the closest transcript to the end of the contig
     # report_closest    = Whether to report the closest transcript end as a cs
     # min_dist          = The minimum distance between any transcript and the contig
-    a = {'align': align,'closest_tid': None,
+    a = {'align': align,'closest_tid': None, 'blocks': align.blocks,
          'report_closest': False, 'tids': set(), 'min_dist': 1000000,
          'utr3s': {}, 'utr5s': {}, 'close':[],'base': None}
     # Get target/chromosome
     a['target'] = aligns.getrname(align.tid)
     # Get the sequence of the contig
     a['contig_seq'] = contigs.fetch(align.query_name)
+    # Filtering of contigs
+    if align.query_alignment_length and len(a['contig_seq']):
+        if (float(align.query_alignment_length)/len(a['contig_seq'])) < 0.6:
+            continue
     # Get the overlapping features
     try:
         feats = features.fetch(a['target'], align.reference_start, align.reference_end)
@@ -1893,41 +1934,93 @@ for align in aligns:
             lines_result += output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
             file_lines_result.write(output_result(result, output_fields, feature_dict, link_pairs=link_pairs))
             # check if chrom is in all_results
-                
 
 # close output streams
-reads_to_check.close()
+potential_bridges.close()
 FNULL = open(os.devnull, 'w')
-bstart = [time.time(),time.strftime("%c")]
-print "Blatting bridge reads..."
+#bstart = [time.time(),time.strftime("%c")]
+print "Aligning bridge reads against genome..."
 #if not os.path.isfile('./.blat_alignment'):
-reads_to_check = os.path.join(os.path.dirname(args.out),'.reads_to_check')
-blat_alignment = os.path.join(os.path.dirname(args.out),'.blat_alignment')
-if not args.resume and not os.path.isfile(blat_alignment):
-    task = subprocess.Popen(['blat', args.ref_genome, reads_to_check, blat_alignment], stdout=FNULL)
-    task.communicate()
-print "Blat complete"
+potential_bridges = os.path.join(os.path.dirname(args.out),'.potential_bridges')
+blat_alignment = os.path.join(os.path.dirname(args.out),'.bridge_to_genome')
+#if not args.resume and not os.path.isfile(blat_alignment):
+task = subprocess.Popen(['blat', args.ref_genome, potential_bridges, blat_alignment], stdout=FNULL)
+task.communicate()
+print "Blat alignment complete"
+print "Aligning bridge reads against transcripts..."
+blat_alignment2 = os.path.join(os.path.dirname(args.out),'.bridge_to_transcripts')
+task = subprocess.Popen(['blat', args.out+'.transcript_seqs', potential_bridges, blat_alignment2], stdout=FNULL)
+task.communicate()
+print "Blat alignment complete"
 #print 'blat_alignment: {}'.format(blat_alignment)
 #bend = [time.time(), time.strftime("%c")]
-blat_results = get_full_blat_aln(blat_alignment)
-#print 'blat_results: {}'.format(blat_results)
+print 'getting genome blat results...'
+blat_genome_results = get_blat_aln(blat_alignment)
+print 'Done!'
+print 'getting transcript blat results...'
+blat_transcript_results = get_blat_aln(blat_alignment2)
+print 'Done!'
+#for read in blat_genome_results:
+#    print read
+#    print blat_genome_results[read]
+#print 'blat_genome_results: {}'.format(blat_genome_results)
 #print 'lines_result original: {}'.format(repr(lines_result))
 lines_result = lines_result.splitlines()
 keep = []
 #print 'lines_result before: {}'.format(lines_result)
 for result in lines_result:
     result = result.split('\t')
+    target = result[5]
+    transcript = result[1]
+    cleavage_site = int(result[6])
     bridge_reads = result[14].split(',')
-    if bridge_reads == ['-']:
+    temp = bridge_reads[:]
+    has_tail = (result[10] != '0')
+    if (bridge_reads == ['-']): 
+        if (has_tail):
+            keep.append(('\t').join(result))
+            continue
+        else:
+            continue
+    #[int(qsize),int(qstart),int(qend),target,int(block_count),score,int(tstart),int(tend)]
+    for read in temp:
+        remove_read = False
+        maxlocal = maxnonlocal = None
+        has_target_aln = False
+        if read not in blat_genome_results:
+            continue
+        if read == '-':
+            continue
+        print 'Looking at read {}'.format(read)
+        for x in blat_genome_results[read]:
+            print '  Looking at alignment {}'.format(x)
+            # If the alignment does not match the target and does
+            # not align fully to the genome, then we don't care
+            if (x[3] != target) and ((x[1] != 0) or (x[0] != x[2]) or (x[4] != 1)):
+                continue
+            # If none of the alignments match the cs target
+            # then this read should be removed and noted
+            if (x[3] == target) and (x[7] == cleavage_site) and (x[5] > maxlocal):
+                has_target_aln = True
+                maxlocal = x[5]
+            if (x[3] != target) and (x[5] > maxnonlocal):
+                maxnonlocal = x[5]
+        if (maxnonlocal > maxlocal) or not (has_target_aln):
+            remove_read = True
+        # Check transcript alignments
+        if read not in blat_transcript_results:
+            continue
+        elif any([((x[3] == transcript) and (x[1] == 0) and (x[0] == x[2]) and (x[4] == 1)) for x in blat_transcript_results[read]]):
+            remove_read = True
+        if remove_read:
+            temp.remove(read)
+            result[13] = '-'
+            result[15] = str(int(result[15]) - 1)
+    if not temp and not has_tail:
         continue
-    for read in bridge_reads:
-        if read in blat_results:
-            bridge_reads.remove(read)
-    if (not bridge_reads) and (result[10] == '0'):
-        continue
-    elif bridge_reads:
-        result[14] = (',').join(bridge_reads)
-        result[12] = str(len(bridge_reads))
+    elif temp and temp != ['-']:
+        result[14] = (',').join(temp)
+        result[12] = str(len(temp))
     else:
         result[14] = '-'
         result[12] = '0'
@@ -1938,14 +2031,17 @@ lines_result = ('\n').join(keep)
 #if len(keep) == 1:
 #    lines_result += '\n'
 #print 'lines_result after adding keep: {}'.format(repr(lines_result))
-contig_sites = filter_contig_sites(contig_sites,feature_dict)
 if contig_sites:
+    contig_sites = filter_contig_sites(contig_sites,feature_dict)
+if contig_sites and lines_result:
     lines_result += '\n'
 for result in contig_sites:
 #    print result
     #print output_result(result['a'], result, output_fields, feature_dict, link_pairs=link_pairs)
     #raw_input('^'*20)
-    lines_result += output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
-    file_lines_result.write(output_result(result, output_fields, feature_dict, link_pairs=link_pairs))
+    temp = output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
+    lines_result += temp
+    file_lines_result.write(temp)
 #print 'final lines_result: {}'.format(repr(lines_result))
+file_lines_result.close()
 group_and_filter(lines_result, args.out+'.KLEAT', filters=global_filters, make_track=args.track, rgb=args.rgb)
