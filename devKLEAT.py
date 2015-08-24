@@ -1852,12 +1852,19 @@ for align in aligns:
         elif not (align.is_reverse):
             a['strand'] = '+'
     # Store all transcript id's
-    for f in feats:
-        tid = f.asDict()['transcript_id']
-        if (args.strand_specific):
-            if (f.strand != a['strand']):
-                continue
-        a['tids'].add(tid)
+    #for f in feats:
+    #    tid = f.asDict()['transcript_id']
+    #    if (args.strand_specific):
+    #        if (f.strand != a['strand']):
+    #            continue
+    #    a['tids'].add(tid)
+    for chrom in feature_dict:
+        for tid in feature_dict[chrom]:
+            if feature_dict[chrom][tid]['tstart'] <= align.reference_start < feature_dict[chrom][tid]['tend']:
+                if args.strand_specific:
+                    if feature_dict[chrom][tid]['strand'] != a['strand']:
+                        continue
+                a['tids'].add(tid)
     # If not a strand specific library, infer the strand by looking at the overlapping features
     # First, count how many overlapping transcripts are + and -
     likely_strand = {'-': 0, '+': 0}
