@@ -165,7 +165,8 @@ global_filters['binding_sites'] = ['AATAAA','ATTAAA','AGTAAA','TATAAA',
                                    'CATAAA','GATAAA','AATATA','AATACA',
                                    'AATAGA','AAAAAG','ACTAAA','AAGAAA',
                                    'AATGAA','TTTAAA','AAAACA','GGGGCT']
-global_filters['all_results'] = {}
+#global_filters['all_results'] = {}
+global_filters['PEBRs'] = {}
 
 def ucsc_chroms(genome):
     """Extracts conversion of UCSC chromosome names
@@ -1170,6 +1171,10 @@ def find_bridge_reads(a, min_len, mismatch, gf, genome_buffer=1000, tail=None):
                     
             if not picked:
                 extended.write('>{}\n{}\n'.format(read.qname,read.seq))
+                if cleavage_site not in gf['PEBRs']:
+                    gf['PEBRs'][cleavage_site] = [read.qname]
+                else:
+                    gf['PEBRs'][cleavage_site].append(read.qname)
                 second_round[clipped_pos].append(read)
                 #extended.write('>{}\t{}\n{}\n'.format(a['align'].qname, read.qname, read.seq))
     #print 'clipped_reads:\n{}'.format(clipped_reads)
@@ -1805,8 +1810,8 @@ def filter_contig_sites(contig_sites,fd):
 # less than this value, the transcript end should be reported as a cleavage event
 thresh_dist = 20
 lines_result = lines_bridge = lines_link = ''
-file_lines_result = open(args.out+'.lr','w')
-contig_sites_file = open(args.out+'.cs','w')
+#file_lines_result = open(args.out+'.lr','w')
+#contig_sites_file = open(args.out+'.cs','w')
 contig_sites = []
 for align in aligns:
     # If contigs are specified only look at those
@@ -1922,7 +1927,7 @@ for align in aligns:
         except TypeError:
             res['a']['binding_sites'] = None
         contig_sites.append(res)
-        contig_sites_file.write(output_result(res, output_fields, feature_dict, link_pairs=link_pairs))
+        #contig_sites_file.write(output_result(res, output_fields, feature_dict, link_pairs=link_pairs))
     if results:
         for result in results:
             # If there is already a cs close to the end, we don't need the implied one
@@ -1932,7 +1937,7 @@ for align in aligns:
                 a['binding_sites'] = None
             result['a'] = {'target': a['target'], 'qname': align.query_name, 'binding_sites': a['binding_sites'], 'utr3s': a['utr3s']}
             lines_result += output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
-            file_lines_result.write(output_result(result, output_fields, feature_dict, link_pairs=link_pairs))
+            #file_lines_result.write(output_result(result, output_fields, feature_dict, link_pairs=link_pairs))
             # check if chrom is in all_results
 
 # close output streams
@@ -2041,7 +2046,7 @@ for result in contig_sites:
     #raw_input('^'*20)
     temp = output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
     lines_result += temp
-    file_lines_result.write(temp)
+    #file_lines_result.write(temp)
 #print 'final lines_result: {}'.format(repr(lines_result))
-file_lines_result.close()
+#file_lines_result.close()
 group_and_filter(lines_result, args.out+'.KLEAT', filters=global_filters, make_track=args.track, rgb=args.rgb)
