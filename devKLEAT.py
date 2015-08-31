@@ -32,6 +32,7 @@ parser.add_argument('-k', '--track', metavar=('[name]','[description]'), help='N
 parser.add_argument('--rgb', help='RGB value of BED graph. Default is 0,0,255', default='0,0,255')
 parser.add_argument('-c', help='Specify a contig/s to look at.', nargs='+')
 parser.add_argument('--link', action='store_true', help='Enable searching for cleavage site link evidence. This will substantially increase runtime.')
+parser.add_argument('--limit', type=int, help='Only look at the first this number of contigs')
 
 args = parser.parse_args()
 #logging.basicConfig(level=logging.DEBUG)
@@ -103,7 +104,7 @@ for chrom in feature_dict:
 #            current['cstart'] = current['tstart']
 #        if not current['cend']:
 #            current['cend'] = current['tend']
-        #current['seq'] = ('').join([refseq.fetch(x.contig,x.start,x.end).upper() for x in current['feats'] if x.feature =='exon'])
+        current['seq'] = ('').join([refseq.fetch(x.contig,x.start,x.end).upper() for x in current['feats'] if x.feature =='exon'])
         if (current['feats'][0].strand == '+'):
             if (current['cend']) and (current['tend'] > current['cend']+3):
                 # Plus 3 to first coordinate to account for stop codon
@@ -884,20 +885,14 @@ def annotate_cleavage_site(a, cleavage_site, clipped_pos, base, fd, min_txt_matc
 #    if (txt_strand == '+' and base == 'A') or\
 #       (txt_strand == '-' and base == 'T'):     
     if not a['align'].is_reverse:
-        if base == 'A':
-            if clipped_pos == 'end':
-                txt_strand = '+'
-        else:
-            if clipped_pos == 'start':
-                txt_strand = '-'
-    else:
-        if base == 'A':
-            if clipped_pos == 'end':
-                txt_strand = '-'
-        else:
-            if clipped_pos == 'start':
-                txt_strand = '+'
-    if not txt_strand:
+        if (base == 'A' and clipped_pos == 'end') or (base == 'T' and clipped_pos == 'start'):
+            txt_strand = '+'
+    elif a['align'].is_reverse:
+        if (base == 'A' and clipped_pos == 'start') or (base == 'T' and clipped_pos == 'end'):
+            txt_strand = '-'
+    #print '{}\t{}\t{}\t{}\t{}'.format(cleavage_site,base,clipped_pos,a['strand'],txt_strand)
+    if not txt_strand or (txt_strand == '+' and base == 'T') or (txt_strand == '-' and base == 'A'):
+        #print 'failed!'
         return result
     else:
         ests = []
@@ -1871,16 +1866,14 @@ lines_result = lines_bridge = lines_link = ''
 #contig_sites_file = open(args.out+'.cs','w')
 contig_sites = []
 limit = 20
+targ = 'chr6'
 for align in aligns:
-    if limit <= 0:
-        break
-    limit -= 1
     # If contigs are specified only look at those
     if args.c:
         if align.query_name not in args.c:
             continue
     #sys.stdout.write('{}-{}-{}{}\n'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
-    #print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
+    print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
     # If the contig has no start or no end coordinate, we can't
     # do any analysis on it, so we must skip it
     if (align.reference_start == None) or (align.reference_end == None):
@@ -1890,10 +1883,16 @@ for align in aligns:
     # report_closest    = Whether to report the closest transcript end as a cs
     # min_dist          = The minimum distance between any transcript and the contig
     a = {'align': align,'closest_tid': None, 'blocks': align.blocks,
-         'report_closest': False, 'tids': set(), 'min_dist': 1000000,
+         'report_closest': False, 'tids': set(), 'min_dist': None,
          'utr3s': {}, 'utr5s': {},'inf_strand':None}
     # Get target/chromosome
     a['target'] = aligns.getrname(align.tid)
+    if a['target'] != targ:
+        continue
+    if limit <= 0:
+        break
+    else:
+        limit -= 1
     # Get the sequence of the contig
     a['contig_seq'] = contigs.fetch(align.query_name)
     # Filtering of contigs
@@ -1926,7 +1925,6 @@ for align in aligns:
         B = align.reference_end
         X = current['tstart']
         Y = current['tend']
-        skip = True
         if args.strand_specific:
             if feature_dict[a['target']][tid]['strand'] != a['strand']:
                 continue

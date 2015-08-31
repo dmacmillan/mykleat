@@ -32,6 +32,7 @@ parser.add_argument('-k', '--track', metavar=('[name]','[description]'), help='N
 parser.add_argument('--rgb', help='RGB value of BED graph. Default is 0,0,255', default='0,0,255')
 parser.add_argument('-c', help='Specify a contig/s to look at.', nargs='+')
 parser.add_argument('--link', action='store_true', help='Enable searching for cleavage site link evidence. This will substantially increase runtime.')
+parser.add_argument('--limit', type=int, help='Only look at the first this number of contigs')
 
 args = parser.parse_args()
 #logging.basicConfig(level=logging.DEBUG)
@@ -946,6 +947,8 @@ def annotate_cleavage_site(a, cleavage_site, clipped_pos, base, fd, min_txt_matc
 
         #print '\tcs: {}\ttxt: {}'.format(cleavage_site,closest_tid)
     #print 'annotate_result: {}'.format(result)
+    if not result:
+        print '{}\t{}\t{}\t{}\t{}'.format(cleavage_site,base,clipped_pos,a['strand'],txt_strand)
     return result
 
 def find_polyA_cleavage(a,gf,fd):
@@ -1805,9 +1808,11 @@ def filter_contig_sites(contig_sites,fd):
 # less than this value, the transcript end should be reported as a cleavage event
 thresh_dist = 20
 lines_result = lines_bridge = lines_link = ''
-file_lines_result = open(args.out+'.lr','w')
-contig_sites_file = open(args.out+'.cs','w')
+#file_lines_result = open(args.out+'.lr','w')
+#contig_sites_file = open(args.out+'.cs','w')
 contig_sites = []
+limit = 20
+targ = 'chr6'
 for align in aligns:
     # If contigs are specified only look at those
     if args.c:
@@ -1828,6 +1833,12 @@ for align in aligns:
          'utr3s': {}, 'utr5s': {}, 'close':[],'base': None}
     # Get target/chromosome
     a['target'] = aligns.getrname(align.tid)
+    if a['target'] != targ:
+        continue
+    if limit <= 0:
+        break
+    else:
+        limit -= 1
     # Get the sequence of the contig
     a['contig_seq'] = contigs.fetch(align.query_name)
     # Filtering of contigs
@@ -1922,7 +1933,7 @@ for align in aligns:
         except TypeError:
             res['a']['binding_sites'] = None
         contig_sites.append(res)
-        contig_sites_file.write(output_result(res, output_fields, feature_dict, link_pairs=link_pairs))
+        #contig_sites_file.write(output_result(res, output_fields, feature_dict, link_pairs=link_pairs))
     if results:
         for result in results:
             # If there is already a cs close to the end, we don't need the implied one
@@ -1932,7 +1943,7 @@ for align in aligns:
                 a['binding_sites'] = None
             result['a'] = {'target': a['target'], 'qname': align.query_name, 'binding_sites': a['binding_sites'], 'utr3s': a['utr3s']}
             lines_result += output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
-            file_lines_result.write(output_result(result, output_fields, feature_dict, link_pairs=link_pairs))
+            #file_lines_result.write(output_result(result, output_fields, feature_dict, link_pairs=link_pairs))
             # check if chrom is in all_results
 
 # close output streams
@@ -1991,9 +2002,9 @@ for result in lines_result:
             continue
         if read == '-':
             continue
-        print 'Looking at read {}'.format(read)
+        #print 'Looking at read {}'.format(read)
         for x in blat_genome_results[read]:
-            print '  Looking at alignment {}'.format(x)
+            #print '  Looking at alignment {}'.format(x)
             # If the alignment does not match the target and does
             # not align fully to the genome, then we don't care
             if (x[3] != target) and ((x[1] != 0) or (x[0] != x[2]) or (x[4] != 1)):
@@ -2041,7 +2052,7 @@ for result in contig_sites:
     #raw_input('^'*20)
     temp = output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
     lines_result += temp
-    file_lines_result.write(temp)
+    #file_lines_result.write(temp)
 #print 'final lines_result: {}'.format(repr(lines_result))
-file_lines_result.close()
+#file_lines_result.close()
 group_and_filter(lines_result, args.out+'.KLEAT', filters=global_filters, make_track=args.track, rgb=args.rgb)
