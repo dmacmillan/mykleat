@@ -884,15 +884,15 @@ def annotate_cleavage_site(a, cleavage_site, clipped_pos, base, fd, min_txt_matc
     #print 'base: {}'.format(base)
 #    if (txt_strand == '+' and base == 'A') or\
 #       (txt_strand == '-' and base == 'T'):     
+    #print '{}\t{}\t{}\t{}\t{}'.format(cleavage_site,base,clipped_pos,a['strand'],txt_strand)
     if not a['align'].is_reverse:
         if (base == 'A' and clipped_pos == 'end') or (base == 'T' and clipped_pos == 'start'):
             txt_strand = '+'
     elif a['align'].is_reverse:
         if (base == 'A' and clipped_pos == 'start') or (base == 'T' and clipped_pos == 'end'):
             txt_strand = '-'
-    #print '{}\t{}\t{}\t{}\t{}'.format(cleavage_site,base,clipped_pos,a['strand'],txt_strand)
     if not txt_strand or (txt_strand == '+' and base == 'T') or (txt_strand == '-' and base == 'A'):
-        #print 'failed!'
+        #print '{} failed!'.format(cleavage_site)
         return result
     else:
         ests = []
@@ -982,6 +982,9 @@ def annotate_cleavage_site(a, cleavage_site, clipped_pos, base, fd, min_txt_matc
 
         within_utr = closest[1]
         min_dist = closest[0]
+
+        if (min_dist <= 20):
+            a['report_closest'] = False
 
         result = {
                 'ests': ests,
@@ -1773,6 +1776,24 @@ def output(report_lines, bridge_lines=None, link_lines=None):
             out_result.write(line)
     out_result.close()
             
+def findGenomicPas(chrom,coord,window=50):
+    results = []
+    binding_sites = {'AATAAA':1,'ATTAAA':2,'AGTAAA':3,'TATAAA':4,
+                     'CATAAA':5,'GATAAA':6,'AATATA':7,'AATACA':8,
+                     'AATAGA':9,'AAAAAG':10,'ACTAAA':11,'AAGAAA':12,
+                     'AATGAA':13,'TTTAAA':14,'AAAACA':15,'GGGGCT':16}
+    seq = refseq.fetch(chrom,coord-window,coord+window).upper()
+    for i in xrange(len(seq)):
+        hexamer = seq[i:i+6]
+        rev = revComp(seq[i:i+6])
+        if (hexamer in binding_sites):
+            results.append([i+coord-window,binding_sites[hexamer]])
+        if (rev in binding_sites):
+            results.append([i+coord-6,binding_sites[rev]])
+    if results:
+        results = [sorted(results, key=lambda(x):x[1])[0]]
+    return results
+
 def findBindingSites(a, cleavage_site):
     binding_sites = {'AATAAA':1,'ATTAAA':2,'AGTAAA':3,'TATAAA':4,
                      'CATAAA':5,'GATAAA':6,'AATATA':7,'AATACA':8,
@@ -1807,30 +1828,6 @@ def findBindingSites(a, cleavage_site):
         results = [sorted(results, key=lambda(x):x[1])[0]]
     return results
 
-def findNovel3UTR(a):
-    #print 'Finding novel 3\'UTR'
-    stops = ['TGA','TAA','TAG']
-    if a['strand'] == '+':
-        utr3 = {'start': None, 'end': a['align'].reference_end, 'novel': True}
-    else:
-        utr3 = {'start': None, 'end': a['align'].reference_start, 'novel': True}
-    # 60 is sort of the minimum length for a human 3'UTR
-    seqlen = len(a['contig_seq'])
-    for i in xrange(seqlen-60,max(seqlen-2000,0),-1):
-        codon = a['contig_seq'][i:i+3]
-        if (codon in stops):
-            for j in xrange(max(0,i-(seqlen/4)),0,-3):
-                start = a['contig_seq'][j:j+3]
-                if (start == 'ATG'):
-                    utr3['start'] = qpos_to_tpos(a,i+5)
-                    if (utr3['start'] > utr3['end']):
-                        temp = utr3['start']
-                        utr3['start'] = utr3['end']
-                        utr3['end'] = temp
-                    if (utr3['start']) and (utr3['end']):
-                        return utr3
-    return None
-
 def loadResults(outfile):
     with open(outfile, 'r') as o:
         line = o.readline()
@@ -1846,8 +1843,7 @@ def binarySearch(sorted_array,val):
     else:
         sorted_array = sorted_array[mid:]
     return binarySearch(sorted_array,val)
-        
-        
+
 def filter_contig_sites(contig_sites,fd):
     contig_sites = sorted(contig_sites, key=lambda x: x['cleavage_site'])
     res = [contig_sites[0]]
@@ -1865,15 +1861,13 @@ lines_result = lines_bridge = lines_link = ''
 #file_lines_result = open(args.out+'.lr','w')
 #contig_sites_file = open(args.out+'.cs','w')
 contig_sites = []
-limit = 20
-targ = 'chr6'
 for align in aligns:
     # If contigs are specified only look at those
     if args.c:
         if align.query_name not in args.c:
             continue
     #sys.stdout.write('{}-{}-{}{}\n'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
-    print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
+    #print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
     # If the contig has no start or no end coordinate, we can't
     # do any analysis on it, so we must skip it
     if (align.reference_start == None) or (align.reference_end == None):
@@ -1883,16 +1877,11 @@ for align in aligns:
     # report_closest    = Whether to report the closest transcript end as a cs
     # min_dist          = The minimum distance between any transcript and the contig
     a = {'align': align,'closest_tid': None, 'blocks': align.blocks,
-         'report_closest': False, 'tids': set(), 'min_dist': None,
-         'utr3s': {}, 'utr5s': {},'inf_strand':None}
+         'report_closest': True, 'tids': set(), 'min_dist': None,
+         'utr3s': {}, 'utr5s': {},'inf_strand':None, 
+         'PAS': {'start': None, 'end': None}, 'cleavage_site': None}
     # Get target/chromosome
     a['target'] = aligns.getrname(align.tid)
-    if a['target'] != targ:
-        continue
-    if limit <= 0:
-        break
-    else:
-        limit -= 1
     # Get the sequence of the contig
     a['contig_seq'] = contigs.fetch(align.query_name)
     # Filtering of contigs
@@ -1911,6 +1900,14 @@ for align in aligns:
         a['strand'] = '-'
     elif not (align.is_reverse):
         a['strand'] = '+'
+    pas_start = findGenomicPas(a['target'],align.reference_start,window=30)
+    pas_end = findGenomicPas(a['target'],align.reference_end,window=30)
+    if pas_start and not pas_end:
+        a['PAS']['start'] = pas_start
+        a['cleavage_site'] = align.reference_start
+    elif not pas_start and pas_end:
+        a['PAS']['end'] = pas_end
+        a['cleavage_site'] = align.reference_end + 1
     # Store all transcript id's
     #for f in feats:
     #    tid = f.asDict()['transcript_id']
@@ -1918,21 +1915,36 @@ for align in aligns:
     #        if (f.strand != a['strand']):
     #            continue
     #    a['tids'].add(tid)
+    fwd_distances = []
+    rev_distances = []
+    fwd_closest = None
+    rev_closest = None
     for tid in feature_dict[a['target']]:
-        #if (feature_dict[a['target']][tid]['tstart'] <= align.reference_start) and (k.reference_end <= feature_dict[a['target']][tid]['tend']):
+        if args.strand_specific:
+            if feature_dict[a['target']][tid]['strand'] != a['strand']:
+                continue
         current = feature_dict[a['target']][tid]
         A = align.reference_start
         B = align.reference_end
         X = current['tstart']
         Y = current['tend']
-        if args.strand_specific:
-            if feature_dict[a['target']][tid]['strand'] != a['strand']:
-                continue
         if (X < A) and (Y < A):
             continue
         if (X > B) and (Y > B):
             continue
         a['tids'].add(tid)
+        if current['utr3']:
+            has_utr3 = True
+        else:
+            has_utr3 = False
+        if current['strand'] == '+':
+            distance = abs(B - Y)
+            if distance <= 20:
+                fwd_distances.append([distance,has_utr3,tid])
+        elif current['strand'] == '-':
+            distance = abs(A - X)
+            if distance <= 20:
+                rev_distances.append([distance,has_utr3,tid])
     # If not a strand specific library, infer the strand by looking at the overlapping features
     # First, count how many overlapping transcripts are + and -
     #likely_strand = {'-': 0, '+': 0}
@@ -1991,6 +2003,44 @@ for align in aligns:
 #    #    logger.debug(k)
 #    #    logger.debug(a[k])
     results = find_polyA_cleavage(a,global_filters,feature_dict)
+    if a['report_closest']:
+        print 'contig: {}\t report_closest:{}'.format(align.qname,a['report_closest'])
+        if fwd_distances and rev_distances:
+            print 'Both fwd and rev transcripts!'
+            if a['PAS']['end'] and a['PAS']['start']:
+                a['report_closest'] = False
+            elif a['PAS']['end'] and not a['PAS']['start']:
+                rev_distances = []
+            elif not a['PAS']['end'] and a['PAS']['start']:
+                fwd_distances = []
+        if fwd_distances:
+            fwd_distances.sort(key=lambda x: x[0])
+            if any(x[1] for x in fwd_distances):
+               fwd_closest = [x for x in fwd_distances if x[1]][0]
+            else:
+               fwd_closest = distances[0]
+            closest = fwd_closest
+        elif rev_distances:
+            rev_distances.sort(key=lambda x: x[0])
+            if any(x[1] for x in rev_distances):
+               rev_closest = [x for x in rev_distances if x[1]][0]
+            else:
+               rev_closest = distances[0]
+            closest = rev_closest
+    if (fwd_closest or rev_closest) and a['report_closest']:
+        print 'closest: {}'.format(closest)
+        a['closest_tid'] = closest[2]
+        a['min_dist'] = closest[0]
+        cs = a['cleavage_site']
+        res = {'txt': a['closest_tid'], 'cleavage_site': cs, 
+               'within_utr': True, 'from_end': a['min_dist'], 
+               'ests': None, 'a': {'target': a['target'],
+               'utr3s': a['utr3s'],'qname': align.query_name}}
+        try:
+            res['a']['binding_sites'] = findBindingSites(a, res['cleavage_site'])
+        except TypeError:
+            res['a']['binding_sites'] = None
+        contig_sites.append(res)
 #    if (a['report_closest']):
 #        if (a['strand'] == '+'):
 #            cs = align.reference_end
