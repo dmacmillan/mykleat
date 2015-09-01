@@ -137,8 +137,8 @@ prefix = os.path.splitext(args.out)[0]
 basedir = os.path.dirname(args.out)
 if not os.path.exists(basedir):
     os.makedirs(basedir)
-print basedir
-print os.path.realpath(__file__)
+#print basedir
+#print os.path.realpath(__file__)
 #shutil.copyfile(os.path.realpath(__file__),os.path.join(basedir,'KLEAT.py'))
 shutil.copy(os.path.realpath(__file__),basedir+'/KLEAT.py')
 #out_link_pairs = open(os.path.join(basedir,prefix+'-link.fa'), 'a')
@@ -2004,9 +2004,9 @@ for align in aligns:
 #    #    logger.debug(a[k])
     results = find_polyA_cleavage(a,global_filters,feature_dict)
     if a['report_closest']:
-        print 'contig: {}\t report_closest:{}'.format(align.qname,a['report_closest'])
+#        print 'contig: {}\t report_closest:{}'.format(align.qname,a['report_closest'])
         if fwd_distances and rev_distances:
-            print 'Both fwd and rev transcripts!'
+#            print 'Both fwd and rev transcripts!'
             if a['PAS']['end'] and a['PAS']['start']:
                 a['report_closest'] = False
             elif a['PAS']['end'] and not a['PAS']['start']:
@@ -2028,7 +2028,7 @@ for align in aligns:
                rev_closest = distances[0]
             closest = rev_closest
     if (fwd_closest or rev_closest) and a['report_closest']:
-        print 'closest: {}'.format(closest)
+#        print 'closest: {}'.format(closest)
         a['closest_tid'] = closest[2]
         a['min_dist'] = closest[0]
         cs = a['cleavage_site']

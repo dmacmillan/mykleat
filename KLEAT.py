@@ -137,7 +137,7 @@ prefix = os.path.splitext(args.out)[0]
 basedir = os.path.dirname(args.out)
 if not os.path.exists(basedir):
     os.makedirs(basedir)
-print os.path.realpath(__file__)
+#print os.path.realpath(__file__)
 #shutil.copyfile(os.path.realpath(__file__),os.path.join(basedir,'KLEAT.py'))
 shutil.copy(os.path.realpath(__file__),basedir)
 #out_link_pairs = open(os.path.join(basedir,prefix+'-link.fa'), 'a')
