@@ -1869,7 +1869,7 @@ for align in aligns:
     if args.c:
         if align.query_name not in args.c:
             continue
-    #sys.stdout.write('{}-{}-{}{}\n'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
+    sys.stdout.write('{}-{}-{}{}\r'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
     #print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
     # If the contig has no start or no end coordinate, we can't
     # do any analysis on it, so we must skip it
