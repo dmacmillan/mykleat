@@ -1782,7 +1782,10 @@ def findGenomicPas(chrom,coord,window=50):
                      'CATAAA':5,'GATAAA':6,'AATATA':7,'AATACA':8,
                      'AATAGA':9,'AAAAAG':10,'ACTAAA':11,'AAGAAA':12,
                      'AATGAA':13,'TTTAAA':14,'AAAACA':15,'GGGGCT':16}
-    seq = refseq.fetch(chrom,coord-window,coord+window).upper()
+    try:
+        seq = refseq.fetch(chrom,coord-window,coord+window).upper()
+    except IndexError:
+        return results
     for i in xrange(len(seq)):
         hexamer = seq[i:i+6]
         rev = revComp(seq[i:i+6])
@@ -2018,14 +2021,14 @@ for align in aligns:
             if any(x[1] for x in fwd_distances):
                fwd_closest = [x for x in fwd_distances if x[1]][0]
             else:
-               fwd_closest = distances[0]
+               fwd_closest = fwd_distances[0]
             closest = fwd_closest
         elif rev_distances:
             rev_distances.sort(key=lambda x: x[0])
             if any(x[1] for x in rev_distances):
                rev_closest = [x for x in rev_distances if x[1]][0]
             else:
-               rev_closest = distances[0]
+               rev_closest = rev_distances[0]
             closest = rev_closest
     if (fwd_closest or rev_closest) and a['report_closest']:
 #        print 'closest: {}'.format(closest)
