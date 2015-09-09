@@ -1,3 +1,6 @@
+
+__version__ = '2.2b'
+
 import time
 import random,string
 import copy
