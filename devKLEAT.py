@@ -1906,9 +1906,11 @@ for align in aligns:
     pas_start = findGenomicPas(a['target'],align.reference_start,window=30)
     pas_end = findGenomicPas(a['target'],align.reference_end,window=30)
     if pas_start and not pas_end:
+        #print 'polyA signal at start and not end'
         a['PAS']['start'] = pas_start
         a['cleavage_site'] = align.reference_start
     elif not pas_start and pas_end:
+        #print 'polyA signal at end and not start'
         a['PAS']['end'] = pas_end
         a['cleavage_site'] = align.reference_end + 1
     # Store all transcript id's
@@ -2011,25 +2013,28 @@ for align in aligns:
         if fwd_distances and rev_distances:
 #            print 'Both fwd and rev transcripts!'
             if a['PAS']['end'] and a['PAS']['start']:
+#                print 'polyA signal at both ends!'
                 a['report_closest'] = False
             elif a['PAS']['end'] and not a['PAS']['start']:
                 rev_distances = []
             elif not a['PAS']['end'] and a['PAS']['start']:
                 fwd_distances = []
-        if fwd_distances:
+        elif fwd_distances and not rev_distances:
             fwd_distances.sort(key=lambda x: x[0])
             if any(x[1] for x in fwd_distances):
                fwd_closest = [x for x in fwd_distances if x[1]][0]
             else:
                fwd_closest = fwd_distances[0]
             closest = fwd_closest
-        elif rev_distances:
+            a['cleavage_site'] = align.reference_end + 1
+        elif rev_distances and not fwd_distances:
             rev_distances.sort(key=lambda x: x[0])
             if any(x[1] for x in rev_distances):
                rev_closest = [x for x in rev_distances if x[1]][0]
             else:
                rev_closest = rev_distances[0]
             closest = rev_closest
+            a['cleavage_site'] = align.reference_start
     if (fwd_closest or rev_closest) and a['report_closest']:
 #        print 'closest: {}'.format(closest)
         a['closest_tid'] = closest[2]

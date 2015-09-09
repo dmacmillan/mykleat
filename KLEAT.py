@@ -1,3 +1,6 @@
+
+__version__ = '2.1'
+
 import time
 import random,string
 import copy
@@ -947,8 +950,8 @@ def annotate_cleavage_site(a, cleavage_site, clipped_pos, base, fd, min_txt_matc
 
         #print '\tcs: {}\ttxt: {}'.format(cleavage_site,closest_tid)
     #print 'annotate_result: {}'.format(result)
-    if not result:
-        print '{}\t{}\t{}\t{}\t{}'.format(cleavage_site,base,clipped_pos,a['strand'],txt_strand)
+#    if not result:
+#        print '{}\t{}\t{}\t{}\t{}'.format(cleavage_site,base,clipped_pos,a['strand'],txt_strand)
     return result
 
 def find_polyA_cleavage(a,gf,fd):
@@ -1811,15 +1814,13 @@ lines_result = lines_bridge = lines_link = ''
 #file_lines_result = open(args.out+'.lr','w')
 #contig_sites_file = open(args.out+'.cs','w')
 contig_sites = []
-limit = 20
-targ = 'chr6'
 for align in aligns:
     # If contigs are specified only look at those
     if args.c:
         if align.query_name not in args.c:
             continue
-    #sys.stdout.write('{}-{}-{}{}\n'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
-    print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
+    sys.stdout.write('{}-{}-{}{}\r'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
+    #print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
     # If the contig has no start or no end coordinate, we can't
     # do any analysis on it, so we must skip it
     if (align.reference_start == None) or (align.reference_end == None):
@@ -1833,12 +1834,6 @@ for align in aligns:
          'utr3s': {}, 'utr5s': {}, 'close':[],'base': None}
     # Get target/chromosome
     a['target'] = aligns.getrname(align.tid)
-    if a['target'] != targ:
-        continue
-    if limit <= 0:
-        break
-    else:
-        limit -= 1
     # Get the sequence of the contig
     a['contig_seq'] = contigs.fetch(align.query_name)
     # Filtering of contigs
@@ -1971,6 +1966,10 @@ print 'Done!'
 print 'getting transcript blat results...'
 blat_transcript_results = get_blat_aln(blat_alignment2)
 print 'Done!'
+print 'Removing temp files...'
+os.remove(blat_alignment)
+os.remove(blat_alignment2)
+os.remove(args.out+'.transcript_seqs')
 #for read in blat_genome_results:
 #    print read
 #    print blat_genome_results[read]
