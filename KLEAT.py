@@ -216,7 +216,8 @@ def get_coding_type(transcript):
     CODING when cdsStart != cdsEnd
     """
     #if transcript['cstart'] == None or transcript['cend'] == None:
-    #    return 'unknown'
+    #    times[key].append(time.time()-start)
+    return 'unknown'
     #elif transcript['cstart'] and transcript['cend'] and (transcript['cstart'] != transcript['cend']):
     if transcript['cstart'] and transcript['cend']:
         return 'yes'
@@ -490,9 +491,11 @@ def show_utr(result):
         start = start[1:]
         rgb='0,255,0'
     #if result[2] == '-':
-    #    return '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(result[5], end, start, result[4], 0, result[2], end, start, rgb)
+    #    times[key].append(time.time()-start)
+    return '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(result[5], end, start, result[4], 0, result[2], end, start, rgb)
     #else:
-    #    return '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(result[5], start, end, result[4], 0, result[2], start, end, rgb)
+    #    times[key].append(time.time()-start)
+    return '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(result[5], start, end, result[4], 0, result[2], start, end, rgb)
     return '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(result[5], start, end, result[4], 0, result[2], start, end, rgb)
 
 # chrom_proper
@@ -960,7 +963,8 @@ def find_polyA_cleavage(a,gf,fd):
     
     This method first checks if the given contig captures a polyA tail (find_tail_contig),
     and then tries to capture bridge reads (find_bridge_reads) given the above result.
-    These methods may return multiple polyA tails, which will then be assessed one-by-one
+    These methods may times[key].append(time.time()-start)
+ return multiple polyA tails, which will then be assessed one-by-one
     against the annotated gene models to determine if each tail is plausible or not 
     (annotate_cleavage_site).  The final result is kept in a dictionary where the key is
     either the 'start' or the 'end' of the contig.
@@ -1066,7 +1070,8 @@ def merge_clipped_reads(clipped_reads, extended_clipped_reads):
 #    else:
 #        start = contig.reference_end - (read.reference_start - read.reference_end))
 #        end = contig.reference_end
-#    return None
+#    times[key].append(time.time()-start)
+    return None
 
 def find_bridge_reads(a, min_len, mismatch, gf, genome_buffer=1000, tail=None):
     #print "Running find_bridge_reads"
@@ -1386,7 +1391,8 @@ def align_transcript_seq(align, target, query_seqs, label, parse_fn):
     of the alignment.
     'label' will be added in addition to query name to all the 
     temporary files
-    The BLAT alignments will be processed by parse_fn() to return the results
+    The BLAT alignments will be processed by parse_fn() to times[key].append(time.time()-start)
+ return the results
     """
     result = None
     
@@ -1520,7 +1526,8 @@ def get_full_blat_aln(aln_file):
 #        if int(qstart) == 0 and int(qsize) == int(qend) and int(block_count) == 1:
 #            fully_aligned[query] = True
 #        
-#    return fully_aligned
+#    times[key].append(time.time()-start)
+    return fully_aligned
 
 def get_partial_blat_aln(aln_file):
     """Extracts single-block, partial hits from BLAT aligments
@@ -1529,7 +1536,8 @@ def get_partial_blat_aln(aln_file):
     The clipped portion of extended bridge reads contains both genomic sequence
     and the polyA tail. By alignment these reads to the genmomic region, the 
     polyA tail should be unaligned whereas the genomic portion would align.
-    The return variable is a dictionary, where:
+    The times[key].append(time.time()-start)
+ return variable is a dictionary, where:
     key = query(read) name
     value = [qstart, qend, tstart, tend]
     """
@@ -1558,7 +1566,8 @@ def align_genome_seq(a, query_seqs, coord, label, parse_fn):
     Target is genomic sequence between coord[0] and coord[1]
     'label' will be added in addition to query name to all the 
     temporary files
-    The BLAT alignments will be processed by parse_fn() to return the results
+    The BLAT alignments will be processed by parse_fn() to times[key].append(time.time()-start)
+ return the results
     """
     result = None
     
@@ -1819,7 +1828,12 @@ for align in aligns:
     if args.c:
         if align.query_name not in args.c:
             continue
-    sys.stdout.write('{}-{}-{}{}\r'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
+    try:
+        print '{}\t{}'.format(align.qname,time.time()-start)
+    except NameError:
+        start = time.time()
+    start = time.time()
+    #sys.stdout.write('{}-{}-{}{}\r'.format(align.qname,align.reference_start, align.reference_end,'*'*10))
     #print '{}\t{}\t{}'.format(align.qname,align.reference_start, align.reference_end)
     # If the contig has no start or no end coordinate, we can't
     # do any analysis on it, so we must skip it
