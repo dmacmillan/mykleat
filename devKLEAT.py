@@ -1956,8 +1956,6 @@ for align in aligns:
             #file_lines_result.write(output_result(result, output_fields, feature_dict, link_pairs=link_pairs))
             # check if chrom is in all_results
 
-print contig_sites
-
 # close output streams
 potential_bridges.close()
 FNULL = open(os.devnull, 'w')
@@ -2033,7 +2031,7 @@ for result in lines_result:
         # Check transcript alignments
         if read not in blat_transcript_results:
             continue
-        elif any([((x[3] == transcript) and (x[1] == 0) and (x[0] == x[2]) and (x[4] == 1)) for x in blat_transcript_results[read]]):
+        elif any([((x[1] == 0) and (x[0] == x[2]) and (x[4] == 1)) for x in blat_transcript_results[read]]):
             remove_read = True
         if remove_read:
             temp.remove(read)
@@ -2055,7 +2053,7 @@ lines_result = ('\n').join(keep)
 #    lines_result += '\n'
 #print 'lines_result after adding keep: {}'.format(repr(lines_result))
 if contig_sites:
-    contig_sites = filter_contig_sites(contig_sites,feature_dict)
+    contig_sites = filter_contig_sites(contig_sites)
 if contig_sites and lines_result:
     lines_result += '\n'
 for key in contig_sites:
