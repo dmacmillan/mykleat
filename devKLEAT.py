@@ -1796,11 +1796,11 @@ for align in aligns:
 #    if (count >= limit):
 #        break
 #    count += 1
-    try:
-        print '{}\t{}'.format(align.qname,time.time()-start)
-    except NameError:
-        start = time.time()
-    start = time.time()
+#    try:
+#        print '{}\t{}'.format(align.qname,time.time()-start)
+#    except NameError:
+#        start = time.time()
+#    start = time.time()
     # If contigs are specified only look at those
     if args.c:
         if align.query_name not in args.c:
