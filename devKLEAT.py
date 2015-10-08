@@ -1,5 +1,5 @@
 
-__version__ = '2.2b'
+__version__ = '2.3b'
 
 import time
 import random,string
@@ -36,6 +36,7 @@ parser.add_argument('--rgb', help='RGB value of BED graph. Default is 0,0,255', 
 parser.add_argument('-c', help='Specify a contig/s to look at.', nargs='+')
 parser.add_argument('--link', action='store_true', help='Enable searching for cleavage site link evidence. This will substantially increase runtime.')
 parser.add_argument('--no-extend', action='store_false', help='Disable the feature which searches beyond the scope of the contig for cleavage site evidence.')
+parser.add_argument('-limit', type=int, help='Limit the number of contigs to look at')
 
 args = parser.parse_args()
 #logging.basicConfig(level=logging.DEBUG)
@@ -1773,13 +1774,16 @@ def binarySearch(sorted_array,val):
         sorted_array = sorted_array[mid:]
     return binarySearch(sorted_array,val)
 
-def filter_contig_sites(contig_sites,fd):
-    contig_sites = sorted(contig_sites, key=lambda x: x['cleavage_site'])
-    res = [contig_sites[0]]
-    for event in contig_sites[1:]:
-        if (abs(event['cleavage_site'] - res[-1]['cleavage_site']) > 20):
-            res.append(event)
-    return res
+def filter_contig_sites(contig_sites):
+    result = {}
+    keys_sorted = sorted(contig_sites, key=lambda x: contig_sites[x]['cleavage_site'])
+    result[keys_sorted[0]] = contig_sites[keys_sorted[0]]
+    last_added = keys_sorted[0]
+    for key in keys_sorted[1:]:
+        if (abs(contig_sites[key]['cleavage_site'] - result[last_added]['cleavage_site']) > 20):
+            result[key] = contig_sites[key]
+            last_added = key
+    return result
 
 # Short variable for variable containing all result info
 #ar = global_filters['all_results']
@@ -1789,10 +1793,17 @@ thresh_dist = 20
 lines_result = lines_bridge = lines_link = ''
 #file_lines_result = open(args.out+'.lr','w')
 #contig_sites_file = open(args.out+'.cs','w')
-contig_sites = []
+contig_sites = {}
+if args.limit:
+    limit = 1000
+    count = 0
 #limit = 10000
 #count = 0
 for align in aligns:
+    if args.limit:
+        if count >= limit:
+            break
+        count += 1
 #    if (count >= limit):
 #        break
 #    count += 1
@@ -1928,7 +1939,7 @@ for align in aligns:
                 res['a']['binding_sites'] = findBindingSites(a, res['cleavage_site'],a['inf_strand'])
             except TypeError:
                 res['a']['binding_sites'] = None
-            contig_sites.append(res)
+            contig_sites[align.query_name] = res
     if results:
         for result in results:
             if (result['clipped_pos'] == 'start'):
@@ -1944,6 +1955,8 @@ for align in aligns:
             lines_result += output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
             #file_lines_result.write(output_result(result, output_fields, feature_dict, link_pairs=link_pairs))
             # check if chrom is in all_results
+
+print contig_sites
 
 # close output streams
 potential_bridges.close()
@@ -2045,11 +2058,11 @@ if contig_sites:
     contig_sites = filter_contig_sites(contig_sites,feature_dict)
 if contig_sites and lines_result:
     lines_result += '\n'
-for result in contig_sites:
+for key in contig_sites:
 #    print result
     #print output_result(result['a'], result, output_fields, feature_dict, link_pairs=link_pairs)
     #raw_input('^'*20)
-    temp = output_result(result, output_fields, feature_dict, link_pairs=link_pairs)
+    temp = output_result(contig_sites[key], output_fields, feature_dict, link_pairs=link_pairs)
     lines_result += temp
     #file_lines_result.write(temp)
 #print 'final lines_result: {}'.format(repr(lines_result))
